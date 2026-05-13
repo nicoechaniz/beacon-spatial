@@ -307,7 +307,8 @@ def build_main():
     p.text(950, 450, "OSC remote control (UDP port 9001)")
     p.obj("netrcv", 950, 470, "netreceive", 9001)
     p.obj("oscparse", 950, 500, "oscparse")
-    p.obj("osc_route", 950, 530, "route", "/beacon/gain/1", "/beacon/az/1", "/beacon/dist/1",
+    p.obj("oscprint", 950, 520, "print", "osc_in")
+    p.obj("osc_route", 950, 550, "route", "/beacon/gain/1", "/beacon/az/1", "/beacon/dist/1",
           "/beacon/gain/2", "/beacon/az/2", "/beacon/dist/2",
           "/beacon/gain/3", "/beacon/az/3", "/beacon/dist/3",
           "/beacon/gain/4", "/beacon/az/4", "/beacon/dist/4",
@@ -315,6 +316,7 @@ def build_main():
           "/beacon/gain/6", "/beacon/az/6", "/beacon/dist/6",
           "/beacon/wet", "/beacon/dry", "/beacon/master", "/beacon/lfo/offset")
     p.connect("netrcv", 0, "oscparse", 0)
+    p.connect("oscparse", 0, "oscprint", 0)
     p.connect("oscparse", 0, "osc_route", 0)
 
     # Map OSC outputs to floatatoms
