@@ -319,19 +319,35 @@ def build_main():
     p.connect("oscparse", 0, "oscprint", 0)
     p.connect("oscparse", 0, "osc_route", 0)
 
-    # Map OSC outputs to floatatoms
-    osc_map = [
-        ("/beacon/gain/1", "b1_gain_fa"), ("/beacon/az/1", "b1_az_fa"), ("/beacon/dist/1", "b1_dist_fa"),
-        ("/beacon/gain/2", "b2_gain_fa"), ("/beacon/az/2", "b2_az_fa"), ("/beacon/dist/2", "b2_dist_fa"),
-        ("/beacon/gain/3", "b3_gain_fa"), ("/beacon/az/3", "b3_az_fa"), ("/beacon/dist/3", "b3_dist_fa"),
-        ("/beacon/gain/4", "b4_gain_fa"), ("/beacon/az/4", "b4_az_fa"), ("/beacon/dist/4", "b4_dist_fa"),
-        ("/beacon/gain/5", "b5_gain_fa"), ("/beacon/az/5", "b5_az_fa"), ("/beacon/dist/5", "b5_dist_fa"),
-        ("/beacon/gain/6", "b6_gain_fa"), ("/beacon/az/6", "b6_az_fa"), ("/beacon/dist/6", "b6_dist_fa"),
-        ("/beacon/wet", "wet_fa"), ("/beacon/dry", "dry_fa"),
-        ("/beacon/master", "master_fa"), ("/beacon/lfo/offset", "lfo_off_fa"),
+    # Map OSC outputs to floatatoms (visual) and audio objects (actual control)
+    osc_targets = [
+        (0,  "b1_gain_fa", [("b1_amp", 1)]),
+        (1,  "b1_az_fa",   [("b1_spat", 1)]),
+        (2,  "b1_dist_fa", [("b1_spat", 2)]),
+        (3,  "b2_gain_fa", [("b2_amp", 1)]),
+        (4,  "b2_az_fa",   [("b2_spat", 1)]),
+        (5,  "b2_dist_fa", [("b2_spat", 2)]),
+        (6,  "b3_gain_fa", [("b3_amp", 1)]),
+        (7,  "b3_az_fa",   [("b3_spat", 1)]),
+        (8,  "b3_dist_fa", [("b3_spat", 2)]),
+        (9,  "b4_gain_fa", [("b4_amp", 1)]),
+        (10, "b4_az_fa",   [("b4_spat", 1)]),
+        (11, "b4_dist_fa", [("b4_spat", 2)]),
+        (12, "b5_gain_fa", [("b5_amp", 1)]),
+        (13, "b5_az_fa",   [("b5_spat", 1)]),
+        (14, "b5_dist_fa", [("b5_spat", 2)]),
+        (15, "b6_gain_fa", [("b6_amp", 1)]),
+        (16, "b6_az_fa",   [("b6_spat", 1)]),
+        (17, "b6_dist_fa", [("b6_spat", 2)]),
+        (18, "wet_fa",     [("wet_l", 1), ("wet_r", 1)]),
+        (19, "dry_fa",     [("dry_l", 1), ("dry_r", 1)]),
+        (20, "master_fa",  [("master_l", 1), ("master_r", 1)]),
+        (21, "lfo_off_fa", [("lfo_sig", 0)]),
     ]
-    for i, (addr, target) in enumerate(osc_map):
-        p.connect("osc_route", i, target, 0)
+    for idx, fa_name, audio_dests in osc_targets:
+        p.connect("osc_route", idx, fa_name, 0)
+        for obj_name, inlet in audio_dests:
+            p.connect("osc_route", idx, obj_name, inlet)
 
     # init loadbang
     p.obj("lb_init", 1000, 80, "loadbang")
