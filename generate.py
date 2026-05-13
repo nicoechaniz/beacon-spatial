@@ -305,6 +305,29 @@ def build_main():
     p.connect("master_r", 0, "dac", 1)
     init_targets.append("master_msg")
 
+    # OSC / FUDI remote control section
+    p.text(950, 450, "OSC remote control (port 8000)")
+    p.obj("netrcv", 950, 470, "netreceive", 8000, 1)
+    p.obj("osc_route", 950, 500, "route", "b1", "b2", "b3", "b4", "b5", "b6", "wet", "dry", "master", "lfo")
+    p.connect("netrcv", 0, "osc_route", 0)
+
+    # per-band parameter routes
+    for i in range(6):
+        b = f"b{i+1}"
+        p.obj(f"r_{b}", 950 + i*30, 540, "route", "gain", "az", "dist")
+        p.connect("osc_route", i, f"r_{b}", 0)
+        p.connect(f"r_{b}", 0, f"{b}_gain_fa", 0)
+        p.connect(f"r_{b}", 1, f"{b}_az_fa", 0)
+        p.connect(f"r_{b}", 2, f"{b}_dist_fa", 0)
+
+    p.connect("osc_route", 6, "wet_fa", 0)
+    p.connect("osc_route", 7, "dry_fa", 0)
+    p.connect("osc_route", 8, "master_fa", 0)
+
+    p.obj("r_lfo", 950, 600, "route", "offset")
+    p.connect("osc_route", 9, "r_lfo", 0)
+    p.connect("r_lfo", 0, "lfo_off_fa", 0)
+
     # init loadbang
     p.obj("lb_init", 1000, 80, "loadbang")
     p.msg("dsp_on", 1000, 110, "pd dsp 1")
@@ -317,7 +340,7 @@ def build_main():
 
 
 if __name__ == "__main__":
-    out = os.path.expanduser("~/beacon-spatial-pd")
+    out = os.path.expanduser("~/Projects/beacon-spatial")
     os.makedirs(out, exist_ok=True)
     build_spatializer().save(os.path.join(out, "spatializer~.pd"))
     build_main().save(os.path.join(out, "beacon-spatial.pd"))
