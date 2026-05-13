@@ -33,9 +33,12 @@ def to_pd(addr: str, *args):
     if len(parts) < 2 or parts[0] != "beacon":
         return
 
-    val = args[0] if args else 0
+    val = round(args[0], 4) if args else 0
 
-    if len(parts) == 3:
+    if len(parts) == 3 and parts[1] == "lfo":
+        # /beacon/lfo/offset -> lfo offset <val>
+        msg = f"lfo {parts[2]} {val};\n"
+    elif len(parts) == 3:
         # /beacon/gain/1 -> b1 gain <val>
         param, idx = parts[1], parts[2]
         name = f"b{idx}"
@@ -43,9 +46,6 @@ def to_pd(addr: str, *args):
     elif len(parts) == 2:
         # /beacon/wet -> wet <val>
         msg = f"{parts[1]} {val};\n"
-    elif len(parts) == 3 and parts[1] == "lfo":
-        # /beacon/lfo/offset -> lfo offset <val>
-        msg = f"lfo {parts[2]} {val};\n"
     else:
         return
 
