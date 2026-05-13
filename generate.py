@@ -305,7 +305,7 @@ def build_main():
 
     # OSC remote control (UDP + oscparse)
     p.text(950, 450, "OSC remote control (UDP port 9001)")
-    p.obj("netrcv", 950, 470, "netreceive", 9001)
+    p.obj("netrcv", 950, 470, "iemnet/udpreceive", 9001)
     p.obj("oscparse", 950, 500, "oscparse")
     p.obj("oscprint", 950, 520, "print", "osc_in")
     p.obj("osc_route", 950, 550, "route", "/beacon/gain/1", "/beacon/az/1", "/beacon/dist/1",

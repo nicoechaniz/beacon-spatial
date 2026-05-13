@@ -104,7 +104,7 @@
 #X obj 750 840 *~;
 #X obj 600 890 dac~ 1 2;
 #X text 950 450 OSC remote control (UDP port 9001);
-#X obj 950 470 netreceive 9001;
+#X obj 950 470 iemnet/udpreceive 9001;
 #X obj 950 500 oscparse;
 #X obj 950 520 print osc_in;
 #X obj 950 550 route /beacon/gain/1 /beacon/az/1 /beacon/dist/1 /beacon/gain/2 /beacon/az/2 /beacon/dist/2 /beacon/gain/3 /beacon/az/3 /beacon/dist/3 /beacon/gain/4 /beacon/az/4 /beacon/dist/4 /beacon/gain/5 /beacon/az/5 /beacon/dist/5 /beacon/gain/6 /beacon/az/6 /beacon/dist/6 /beacon/wet /beacon/dry /beacon/master /beacon/lfo/offset;
