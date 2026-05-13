@@ -8,9 +8,11 @@ Each string fundamental (40, 80, 120, 160, 200, 240 Hz) gets its own position in
 - `beacon-spatial.pd` — main Pure Data performance patch
 - `spatializer~.pd` — binaural spatializer abstraction (keep in same folder)
 - `generate.py` — Python script that generates both Pd patches
-- `bridge.py` — OSC bridge (Open Stage Control -> Pd)
-- `beacon-osc.json` — starter layout for Open Stage Control
+- `webui.py` — Flask web UI (sends OSC directly to Pd)
+- `beacon-osc.json` — starter layout for Open Stage Control (optional)
+- `bridge.py` — legacy OSC bridge (not needed with webui.py)
 - `requirements.txt` — Python dependencies
+- `test_bridge.py` — automated test suite
 
 ## Quick Start (Pd only)
 
@@ -19,46 +21,43 @@ Each string fundamental (40, 80, 120, 160, 200, 240 Hz) gets its own position in
 3. DSP auto-starts. Strum the guitar.
 4. Drag number boxes to tweak positions, gains, wet/dry mix.
 
-## Web UI with Open Stage Control
+## Web UI (Flask)
 
-### 1. Install bridge dependencies
+### 1. Install dependencies
 
+    cd ~/Projects/beacon-spatial
+    python3 -m venv venv
+    source venv/bin/activate
     pip install -r requirements.txt
 
-### 2. Start the bridge
-
-    python3 bridge.py
-
-The bridge listens for OSC on UDP port 9000 and forwards commands to Pd via TCP port 8000.
-
-### 3. Start Open Stage Control
-
-Download from https://openstagecontrol.ammd.net/
-
-Launch with the starter layout:
-
-    open-stage-control --load beacon-osc.json --send 127.0.0.1:9000
-
-Or import `beacon-osc.json` from the Open Stage Control editor and adjust the layout visually.
-
-### 4. Open the Pd patch
+### 2. Start Pd with the patch
 
     pd beacon-spatial.pd
 
-Make sure `[netreceive 8000 1]` is loaded (bottom right of patch). The UI will now control all parameters remotely.
+### 3. Start the web UI (in another terminal)
+
+    cd ~/Projects/beacon-spatial
+    source venv/bin/activate
+    python3 webui.py
+
+### 4. Open your browser
+
+    http://localhost:5000
+
+The web UI sends OSC directly to Pd via UDP port 9001. No bridge needed.
 
 ## Architecture
 
 ```
-Open Stage Control (browser/phone/tablet)
+Browser (http://localhost:5000)
     |
-    | OSC UDP :9000
+    | HTTP POST /control
     v
-bridge.py
+Flask (webui.py)
     |
-    | FUDI/TCP :8000
+    | OSC UDP :9001
     v
-Pd [netreceive 8000 1] -> [route b1 b2 ...] -> floatatoms -> spatializers
+Pd [netreceive 9001] -> [oscparse] -> [route] -> floatatoms -> spatializers
 ```
 
 ## Default Positions
@@ -74,13 +73,13 @@ Pd [netreceive 8000 1] -> [route b1 b2 ...] -> floatatoms -> spatializers
 
 ## Live Controls
 
-All parameters are message boxes / floatatoms in the Pd patch. Click and drag to change.
+All parameters are number boxes / floatatoms in the Pd patch. Click and drag to change.
 
-- **Gains** (per band): 0-3
+- **Gains** (per band): 0–3
 - **Azimuth** (left/right position): -180 to 180
-- **Distance** (depth): 0-10
-- **Wet/Dry** (spatial vs raw): 0-1
-- **Master**: 0-2
+- **Distance** (depth): 0–10
+- **Wet/Dry** (spatial vs raw): 0–1
+- **Master**: 0–2
 - **Butterfly Center** (LFO offset): -180 to 180
 
 ## Important

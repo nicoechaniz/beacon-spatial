@@ -63,8 +63,6 @@ class PdPatch:
 
 def build_spatializer():
     p = PdPatch(100, 100, 500, 400)
-    p.text(320, 60, "azimuth: -180..180 (0=front, 90=right, -90=left)")
-    p.text(320, 80, "distance: 1=close, 10=far")
 
     p.obj("in_sig",   30,  30, "inlet~", "signal")
     p.obj("in_az",   180,  30, "inlet", "azimuth")
@@ -101,8 +99,8 @@ def build_spatializer():
     p.connect("tfff",    2, "itd_mul",  0)
     p.connect("itd_mul", 0, "moses",    0)
     p.connect("moses",   0, "abs_r",    0)
-    p.connect("moses",   1, "dread_l",  1)
-    p.connect("abs_r",   0, "dread_r",  1)
+    p.connect("moses",   1, "dread_l",  0)
+    p.connect("abs_r",   0, "dread_r",  0)
     p.connect("in_dist", 0, "dist_gain",0)
     p.connect("dist_gain",0,"mul_gl",   1)
     p.connect("dist_gain",0,"mul_gr",   1)
@@ -305,28 +303,33 @@ def build_main():
     p.connect("master_r", 0, "dac", 1)
     init_targets.append("master_msg")
 
-    # OSC / FUDI remote control section
-    p.text(950, 450, "OSC remote control (port 8000)")
-    p.obj("netrcv", 950, 470, "netreceive", 8000, 1)
-    p.obj("osc_route", 950, 500, "route", "b1", "b2", "b3", "b4", "b5", "b6", "wet", "dry", "master", "lfo")
-    p.connect("netrcv", 0, "osc_route", 0)
+    # OSC remote control (UDP + oscparse)
+    p.text(950, 450, "OSC remote control (UDP port 9001)")
+    p.obj("netrcv", 950, 470, "netreceive", 9001)
+    p.obj("oscparse", 950, 500, "oscparse")
+    p.obj("osc_route", 950, 530, "route", "/beacon/gain/1", "/beacon/az/1", "/beacon/dist/1",
+          "/beacon/gain/2", "/beacon/az/2", "/beacon/dist/2",
+          "/beacon/gain/3", "/beacon/az/3", "/beacon/dist/3",
+          "/beacon/gain/4", "/beacon/az/4", "/beacon/dist/4",
+          "/beacon/gain/5", "/beacon/az/5", "/beacon/dist/5",
+          "/beacon/gain/6", "/beacon/az/6", "/beacon/dist/6",
+          "/beacon/wet", "/beacon/dry", "/beacon/master", "/beacon/lfo/offset")
+    p.connect("netrcv", 0, "oscparse", 0)
+    p.connect("oscparse", 0, "osc_route", 0)
 
-    # per-band parameter routes
-    for i in range(6):
-        b = f"b{i+1}"
-        p.obj(f"r_{b}", 950 + i*30, 540, "route", "gain", "az", "dist")
-        p.connect("osc_route", i, f"r_{b}", 0)
-        p.connect(f"r_{b}", 0, f"{b}_gain_fa", 0)
-        p.connect(f"r_{b}", 1, f"{b}_az_fa", 0)
-        p.connect(f"r_{b}", 2, f"{b}_dist_fa", 0)
-
-    p.connect("osc_route", 6, "wet_fa", 0)
-    p.connect("osc_route", 7, "dry_fa", 0)
-    p.connect("osc_route", 8, "master_fa", 0)
-
-    p.obj("r_lfo", 950, 600, "route", "offset")
-    p.connect("osc_route", 9, "r_lfo", 0)
-    p.connect("r_lfo", 0, "lfo_off_fa", 0)
+    # Map OSC outputs to floatatoms
+    osc_map = [
+        ("/beacon/gain/1", "b1_gain_fa"), ("/beacon/az/1", "b1_az_fa"), ("/beacon/dist/1", "b1_dist_fa"),
+        ("/beacon/gain/2", "b2_gain_fa"), ("/beacon/az/2", "b2_az_fa"), ("/beacon/dist/2", "b2_dist_fa"),
+        ("/beacon/gain/3", "b3_gain_fa"), ("/beacon/az/3", "b3_az_fa"), ("/beacon/dist/3", "b3_dist_fa"),
+        ("/beacon/gain/4", "b4_gain_fa"), ("/beacon/az/4", "b4_az_fa"), ("/beacon/dist/4", "b4_dist_fa"),
+        ("/beacon/gain/5", "b5_gain_fa"), ("/beacon/az/5", "b5_az_fa"), ("/beacon/dist/5", "b5_dist_fa"),
+        ("/beacon/gain/6", "b6_gain_fa"), ("/beacon/az/6", "b6_az_fa"), ("/beacon/dist/6", "b6_dist_fa"),
+        ("/beacon/wet", "wet_fa"), ("/beacon/dry", "dry_fa"),
+        ("/beacon/master", "master_fa"), ("/beacon/lfo/offset", "lfo_off_fa"),
+    ]
+    for i, (addr, target) in enumerate(osc_map):
+        p.connect("osc_route", i, target, 0)
 
     # init loadbang
     p.obj("lb_init", 1000, 80, "loadbang")
