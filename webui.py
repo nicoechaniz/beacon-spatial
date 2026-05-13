@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Flask web UI for Harmonic Beacon Spatializer.
 
-Serves a dark-themed control surface at http://localhost:5000
-Sends OSC to bridge.py on port 9000.
+Serves a dark-themed control surface (default http://localhost:5050)
+Sends OSC directly to Pd on port 9001.
 
 Usage:
     source venv/bin/activate
@@ -263,7 +263,7 @@ if __name__ == "__main__":
     print("=" * 50)
     print("Harmonic Beacon Web UI")
     print("=" * 50)
-    print("Open your browser at: http://localhost:5000")
-    print("Make sure bridge.py and Pd are running!")
+    print("Open your browser at: http://localhost:5050")
+    print("Make sure Pd is running with beacon-spatial.pd!")
     print("=" * 50)
-    app.run(host="0.0.0.0", port=5000, debug=False)
+    app.run(host="0.0.0.0", port=5050, debug=False)
