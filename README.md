@@ -3,64 +3,88 @@
 6-band binaural spatializer for the 40Hz natural harmonic series guitar.
 Each string fundamental (40, 80, 120, 160, 200, 240 Hz) gets its own position in 3D space via headphones.
 
-## Files
+**Current engine:** SuperCollider (scsynth + ATK FOA + sclang OSCdefs) + Flask web UI.
 
-- `beacon-spatial.pd` — main Pure Data performance patch
-- `spatializer~.pd` — binaural spatializer abstraction (keep in same folder)
-- `generate.py` — Python script that generates both Pd patches
-- `webui.py` — Flask web UI (sends OSC directly to Pd)
-- `beacon-osc.json` — starter layout for Open Stage Control (optional)
-- `bridge.py` — legacy OSC bridge (not needed with webui.py)
-- `requirements.txt` — Python dependencies
-- `test_bridge.py` — automated test suite
+## Quick Start
 
-## Quick Start (Pd only)
-
-1. Open `beacon-spatial.pd` in Pure Data (vanilla 0.55+)
-2. **Media > Audio Settings** — input = Zoom R24 Ch1, output = headphones
-3. DSP auto-starts. Strum the guitar.
-4. Drag number boxes to tweak positions, gains, wet/dry mix.
-
-## Web UI (Flask)
-
-### 1. Install dependencies
+### 1. One-time setup (venv)
 
     cd ~/Projects/beacon-spatial
     python3 -m venv venv
     source venv/bin/activate
     pip install -r requirements.txt
 
-### 2. Start Pd with the patch
+### 2. Start everything (recommended)
 
-    pd beacon-spatial.pd
+    ./start-beacon.sh
 
-### 3. Start the web UI (in another terminal)
+This starts (in order):
+- JACK (if not running) with the project ALSA settings
+- scsynth on 57110 (2 in / 2 out)
+- sclang + `beacon.scd` (QT offscreen, OSC on 57120)
+- Flask web UI from venv on http://localhost:5050
 
-    cd ~/Projects/beacon-spatial
-    source venv/bin/activate
-    python3 webui.py
+Press **Ctrl-C** in the terminal to cleanly stop all four.
 
-### 4. Open your browser
+### 3. Open browser
 
-    http://localhost:5000
+    http://localhost:5050
 
-The web UI sends OSC directly to Pd via UDP port 9001. No bridge needed.
+Move faders — changes go live via OSC to the 6-band spatializer.
 
-## Architecture
+### Legacy Pd version
+
+The original Pd patch (`beacon-spatial.pd`) and related files remain in the tree for reference but are no longer the active target.
+
+## Files
+
+- `start-beacon.sh` — master launcher (JACK + scsynth + sclang + web UI)
+- `beacon.scd` — SuperCollider synthdef + 6-band FoaPanB + OSCdef receivers (ATK)
+- `webui.py` — Flask web UI (dark theme, 6-band + mix controls)
+- `beacon-osc.json` — Open Stage Control layout (optional)
+- `requirements.txt`, `venv/` — Python deps
+- `extracto_2min.wav` — source loop (guitar harmonic series)
+- Legacy: `beacon-spatial.pd`, `spatializer~.pd`, `generate.py`, `bridge.py`
+
+## Architecture (current)
 
 ```
-Browser (http://localhost:5000)
+Browser (http://localhost:5050)
     |
     | HTTP POST /control
     v
-Flask (webui.py)
+Flask (webui.py, venv python)
     |
-    | OSC UDP :9001
+    | OSC UDP :57120
     v
-Pd [netreceive 9001] -> [oscparse] -> [route] -> floatatoms -> spatializers
+sclang (beacon.scd) -- OSCdef --> synth.set()
+    |
+    | /n_set etc.
+    v
+scsynth -u 57110 (JACK backend)
+    |
+    | 6x BPF -> FoaPanB(az,1/dist) -> B-format sum -> FoaDecode(Listen) + dry
+    v
+JACK -> headphones (binaural)
 ```
 
-## Default Positions
+## Web UI (standalone)
+
+If you want to run pieces manually (e.g. during SC dev):
+
+    # terminal 1
+    jackd -d alsa -r 44100 -p 256 -n 2
+
+    # terminal 2
+    scsynth -u 57110 -i 2 -o 2
+
+    # terminal 3
+    QT_QPA_PLATFORM=offscreen sclang -D beacon.scd
+
+    # terminal 4
+    source venv/bin/activate && python3 webui.py
+
+## Default Positions (per-band)
 
 | Freq | Position | Azimuth | Distance |
 |------|----------|---------|----------|
@@ -69,21 +93,22 @@ Pd [netreceive 9001] -> [oscparse] -> [route] -> floatatoms -> spatializers
 | 120Hz | left side | -90 | 3.0 |
 | 160Hz | front-left | -45 | 2.5 |
 | 200Hz | front-right | 45 | 2.0 |
-| 240Hz | front-center (orbiting) | 0 + LFO | 1.5 |
+| 240Hz | front-center | 0 | 1.5 |
 
-## Live Controls
-
-All parameters are number boxes / floatatoms in the Pd patch. Click and drag to change.
+## Live Controls (Web UI + OSC)
 
 - **Gains** (per band): 0–3
-- **Azimuth** (left/right position): -180 to 180
+- **Azimuth** (left/right): -180..180 deg
 - **Distance** (depth): 0–10
-- **Wet/Dry** (spatial vs raw): 0–1
-- **Master**: 0–2
-- **Butterfly Center** (LFO offset): -180 to 180
+- **Wet / Dry / Master**
+
+All changes have 50 ms lag on gain/az per spec. No LFOs, no reverb, plain FoaPanB + 1/distance.
 
 ## Important
 
-- **Headphones required.** The binaural effect only works on headphones.
-- **YouTube carries stereo well.** Use it as the primary audio stream.
-- **Zoom flattens to mono/compressed.** Use Zoom for video/voice only.
+- **Headphones required.** Binaural spatialization (Listen HRTF via ATK) only works on headphones.
+- Requires SuperCollider + ATK quark + kernels (~/.local/share/ATK/kernels/FOA/decoders/listen).
+- The launcher and .scd hard-code the absolute path to `extracto_2min.wav`.
+
+
+
