@@ -36,6 +36,8 @@
 (
 var buf, decoder, synth, oscdefs;
 var audioFilePath = "/home/nicolas/Projects/beacon-spatial/harmonic_beacon_2026_05_13_session.wav";
+var useFile = "BEACON_SOURCE".getenv == "file";
+var defName = if (useFile) { \beacon_file } { \beacon_live };
 
 // Use pre-started scsynth (from start-beacon.sh) on standard port 57110.
 // sclang listens on 57120 (default or -u) for OSCdef messages from web UI.
@@ -56,14 +58,18 @@ server.options.blockSize = 64;    // default fine; kernel latency ~512/sr anyway
 "  12 BPF + 1 HPF binaural (Listen HRTF)".postln;
 "========================================".postln;
 "SC: %  |  ATK kernels: %".format(Main.version, Atk.userKernelDir).postln;
-"Audio file: % (mono, 48kHz)".format(audioFilePath.basename).postln;
+if (useFile) {
+  "MODE: FILE — %".format(audioFilePath.basename).postln;
+} {
+  "MODE: LIVE — SoundIn.ar(0) [R24 CH1]".postln;
+};
 "".postln;
 
 // OSC: /beacon/* messages are received by sclang (OSCdef) on its lang port (57120).
 // They are translated to .set() calls on the running synth (which talks to scsynth on 57110).
 "Send /beacon/gain/N etc OSC to sclang port 57120 (or sclang's -u port).".postln;
 "scsynth (audio engine) on 57110 (external, started by start-beacon.sh).".postln;
-"Launch via: ./start-beacon.sh".postln;
+"Launch via: ./start-beacon.sh [--live|--file]".postln;
 "".postln;
 
 // --- Attach to running scsynth (no boot attempt; script starts scsynth first) ---
@@ -79,19 +85,87 @@ server.doWhenBooted({
   var defaultSolo  = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
   var mix0 = 0.85, master0 = 0.9;
   var cond = Condition.new;
+  var makeBeaconDef = { |name, srcFunc|
+    SynthDef(name, {
+      arg out = 0, bufnum = 0;
+
+      // NamedControls with .lag(0.05) ONLY on azimuth/gain (per spec)
+      var gains = defaultGains.collect { |val, i|
+        ("gain" ++ (i + 1)).asSymbol.kr(val).lag(0.05)
+      };
+      var azs = defaultAz.collect { |val, i|
+        ("az" ++ (i + 1)).asSymbol.kr(val).lag(0.05)
+      };
+      var dists = defaultDist.collect { |val, i|
+        ("dist" ++ (i + 1)).asSymbol.kr(val)
+      };
+      var solos = defaultSolo.collect { |val, i|
+        ("solo" ++ (i + 1)).asSymbol.kr(val)
+      };
+      var mix    = \mix.kr(mix0);
+      var master = \master.kr(master0);
+
+      // Source injected by factory function (file or live)
+      var src = srcFunc.value(bufnum);
+
+      var qCtrls = 12.collect { |i|
+        ("q" ++ (i + 1)).asSymbol.kr(defaultRQs[i]).lag(0.05)
+      };
+
+      // 12x BPF (Q configurable) + 1x HPF (1800Hz, no upper limit)
+      var bpfs = bpfFreqs.collect { |freq, i|
+        var sig;
+        if (i == 12) {
+          sig = HPF.ar(src, freq);
+        } {
+          sig = BPF.ar(src, freq, qCtrls[i]);
+        };
+        sig * gains[i]
+      };
+
+      // Solo logic: if any solo is active, only soloed bands pass
+      var anySolo = solos.sum;
+      var gates = solos.collect { |s| (anySolo <= 0) + (s * (anySolo > 0)) };
+      var gatedBpfs = bpfs.collect { |bpfSig, i| bpfSig * gates[i] };
+
+      // Dry path: Mix(gated filter outputs) * (1-mix)
+      var drySig = Mix(gatedBpfs) * (1 - mix);
+
+      // Wet path: per-band FoaPanB(az in rad, distance via 1/dist scaling)
+      // Distance scaling applied pre-encode (affects B-format contribution level)
+      var foas = gatedBpfs.collect { |bpfSig, i|
+        var azRad = azs[i].degrad;
+        var d = dists[i].max(0.1);   // avoid div0 / extreme boost at dist=0
+        FoaPanB.ar(bpfSig / d, azRad, 0)
+      };
+
+      // Sum to single B-format (4 channels: W X Y Z)
+      var bfmt = Mix(foas);
+
+      // Decode B-format -> binaural stereo via Listen HRTF kernels
+      var wetSig = FoaDecode.ar(bfmt, decoder) * mix;
+
+      // Final wet/dry mix + master
+      var sig = (wetSig + drySig) * master;
+
+      Out.ar(out, sig);   // 2 channels
+    }).add;
+  };
 
   "Server booted (2in/2out @ 48000Hz).".postln;
   server.freeAll;   // clean any prior nodes on re-run
 
-  // Load source buffer (looping WAV)
-  "Loading buffer: % ...".format(audioFilePath.basename).postln;
-  buf = Buffer.read(server, audioFilePath, action: {
-    "  Buffer ready: bufnum=%, % frames, %s".format(
-      buf.bufnum, buf.numFrames, buf.duration.round(0.01)
-    ).postln;
-    cond.unhang;
-  });
-  cond.hang;
+  if (useFile) {
+    // Load source buffer (looping WAV)
+    "Loading buffer: % ...".format(audioFilePath.basename).postln;
+    buf = Buffer.read(server, audioFilePath, action: {
+      "  Buffer ready: bufnum=%, % frames, %s".format(
+        buf.bufnum, buf.numFrames, buf.duration.round(0.01)
+      ).postln;
+      cond.unhang;
+    });
+    cond.hang;
+  };
 
   // Load decoder kernel (Listen subject 1002, explicit 48000/512 path inside ATK)
   "Loading FoaDecoderKernel.newListen(1002, 48000Hz, 512-sample kernels)...".postln;
@@ -101,82 +175,24 @@ server.doWhenBooted({
   "  Decoder kernel ready (allow ~11ms latency from 512-sample HRIR).".postln;
 
   // Define the core SynthDef
-  "Defining SynthDef \\beacon ...".postln;
-  SynthDef(\beacon, {
-    arg out = 0, bufnum;
-
-    // NamedControls with .lag(0.05) ONLY on azimuth/gain (per spec)
-    var gains = defaultGains.collect { |val, i|
-      ("gain" ++ (i + 1)).asSymbol.kr(val).lag(0.05)
-    };
-    var azs = defaultAz.collect { |val, i|
-      ("az" ++ (i + 1)).asSymbol.kr(val).lag(0.05)
-    };
-    var dists = defaultDist.collect { |val, i|
-      ("dist" ++ (i + 1)).asSymbol.kr(val)
-    };
-    var solos = defaultSolo.collect { |val, i|
-      ("solo" ++ (i + 1)).asSymbol.kr(val)
-    };
-    var mix    = \mix.kr(mix0);
-    var master = \master.kr(master0);
-
-    // Mono source (looping)
-    var src = PlayBuf.ar(
-      numChannels: 1,
-      bufnum: bufnum,
-      rate: BufRateScale.kr(bufnum),
-      loop: 1
-    );
-
-    var qCtrls = 12.collect { |i|
-      ("q" ++ (i + 1)).asSymbol.kr(defaultRQs[i]).lag(0.05)
-    };
-
-    // 12x BPF (Q configurable) + 1x HPF (1800Hz, no upper limit)
-    var bpfs = bpfFreqs.collect { |freq, i|
-      var sig;
-      if (i == 12) {
-        sig = HPF.ar(src, freq);
-      } {
-        sig = BPF.ar(src, freq, qCtrls[i]);
-      };
-      sig * gains[i]
-    };
-
-    // Solo logic: if any solo is active, only soloed bands pass
-    var anySolo = solos.sum;
-    var gates = solos.collect { |s| (anySolo <= 0) + (s * (anySolo > 0)) };
-    var gatedBpfs = bpfs.collect { |bpfSig, i| bpfSig * gates[i] };
-
-    // Dry path: Mix(gated filter outputs) * (1-mix)
-    var drySig = Mix(gatedBpfs) * (1 - mix);
-
-    // Wet path: per-band FoaPanB(az in rad, distance via 1/dist scaling)
-    // Distance scaling applied pre-encode (affects B-format contribution level)
-    var foas = gatedBpfs.collect { |bpfSig, i|
-      var azRad = azs[i].degrad;
-      var d = dists[i].max(0.1);   // avoid div0 / extreme boost at dist=0
-      FoaPanB.ar(bpfSig / d, azRad, 0)
-    };
-
-    // Sum to single B-format (4 channels: W X Y Z)
-    var bfmt = Mix(foas);
-
-    // Decode B-format -> binaural stereo via Listen HRTF kernels
-    var wetSig = FoaDecode.ar(bfmt, decoder) * mix;
-
-    // Final wet/dry mix + master
-    var sig = (wetSig + drySig) * master;
-
-    Out.ar(out, sig);   // 2 channels
-  }).add;
+  "Defining SynthDef \\% ...".format(defName).postln;
+  if (useFile) {
+    makeBeaconDef.value(defName, { |bufnum|
+      PlayBuf.ar(1, bufnum, BufRateScale.kr(bufnum), loop: 1)
+    });
+  } {
+    makeBeaconDef.value(defName, { |bufnum| SoundIn.ar(0) });
+  };
 
   server.sync;
-  "SynthDef \\beacon added.".postln;
+  "SynthDef \\% added.".format(defName).postln;
 
   // Instantiate
-  synth = Synth(\beacon, [\bufnum, buf.bufnum]);
+  if (useFile) {
+    synth = Synth(defName, [\bufnum, buf.bufnum]);
+  } {
+    synth = Synth(defName);
+  };
   "Synth active: nodeID=%  (headphones required for binaural)".format(synth.nodeID).postln;
 
   // OSCdefs: 13*3 band + 12 q + 13 solo + mix + master = 66 total
@@ -294,7 +310,11 @@ server.doWhenBooted({
   "Initial dist:  %   (0-10)".format(defaultDist).postln;
   "mix=%, master=%".format(mix0, master0).postln;
   "".postln;
-  "Signal: PlayBuf -> BPF*12 + HPF*1 -> FoaPanB(az.rad, 1/dist) -> B-format".postln;
+  if (useFile) {
+    "Signal: PlayBuf -> BPF*12 + HPF*1 -> FoaPanB(az.rad, 1/dist) -> B-format".postln;
+  } {
+    "Signal: SoundIn.ar(0) [R24 CH1] -> BPF*12 + HPF*1 -> FoaPanB(az.rad, 1/dist) -> B-format".postln;
+  };
   "        -> FoaDecode(Listen) = wet   |   Mix(filters*gains) * (1-mix)".postln;
   "        -> (wet + dry) * master -> stereo out".postln;
   "".postln;

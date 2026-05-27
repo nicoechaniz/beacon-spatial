@@ -12,7 +12,9 @@
 # This avoids ALSA exclusive-mode conflicts that break desktop audio.
 #
 # Proper Ctrl-C / SIGTERM cleanup: kills all tracked child PIDs.
-# Usage: ./start-beacon.sh
+# Usage: ./start-beacon.sh [--live|--file]
+#   --live (default): SoundIn.ar(0) from R24 CH1
+#   --file:           PlayBuf with harmonic_beacon_2026_05_13_session.wav
 # Requires: pw-jack, scsynth, sclang in PATH + ./venv with flask + python-osc
 
 set -u
@@ -20,9 +22,18 @@ set -u
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$PROJECT_DIR"
 
+# Parse source mode
+BEACON_SOURCE="live"
+if [ "${1:-}" == "--file" ]; then
+    BEACON_SOURCE="file"
+elif [ "${1:-}" == "--live" ]; then
+    BEACON_SOURCE="live"
+fi
+export BEACON_SOURCE
+
 echo "========================================"
 echo "  Harmonic Beacon Spatializer"
-echo "  SuperCollider + Web UI"
+echo "  Source: $BEACON_SOURCE"
 echo "========================================"
 echo "Dir: $PROJECT_DIR"
 echo ""
@@ -63,18 +74,47 @@ sleep 3
 # Auto-connect JACK outputs to system playback
 for i in $(seq 1 20); do
     if pw-jack jack_lsp 2>/dev/null | grep -q "SuperCollider:out_1"; then
+        # Disconnect any previous output connections
+        pw-jack jack_disconnect SuperCollider:out_1 "Built-in Audio Analog Stereo:playback_FL" 2>/dev/null || true
+        pw-jack jack_disconnect SuperCollider:out_1 "Built-in Audio Analog Stereo:playback_FR" 2>/dev/null || true
+        pw-jack jack_disconnect SuperCollider:out_2 "Built-in Audio Analog Stereo:playback_FL" 2>/dev/null || true
+        pw-jack jack_disconnect SuperCollider:out_2 "Built-in Audio Analog Stereo:playback_FR" 2>/dev/null || true
+        pw-jack jack_disconnect SuperCollider:out_1 "R24 Analog Stereo:playback_FL" 2>/dev/null || true
+        pw-jack jack_disconnect SuperCollider:out_2 "R24 Analog Stereo:playback_FR" 2>/dev/null || true
+        # Connect to both Built-in and R24 outputs
         pw-jack jack_connect SuperCollider:out_1 "Built-in Audio Analog Stereo:playback_FL" 2>/dev/null || true
         pw-jack jack_connect SuperCollider:out_2 "Built-in Audio Analog Stereo:playback_FR" 2>/dev/null || true
-        echo "[OK] scsynth connected to Built-in Audio"
+        pw-jack jack_connect SuperCollider:out_1 "R24 Analog Stereo:playback_FL" 2>/dev/null || true
+        pw-jack jack_connect SuperCollider:out_2 "R24 Analog Stereo:playback_FR" 2>/dev/null || true
+        echo "[OK] scsynth outputs connected to Built-in Audio + R24"
+        break
+    fi
+    sleep 0.5
+done
+
+# Auto-connect R24 CH1 (capture_FL) to SuperCollider input 1 (SoundIn.ar index 0)
+for i in $(seq 1 20); do
+    if pw-jack jack_lsp 2>/dev/null | grep -q "SuperCollider:in_1"; then
+        # Disconnect any previous input connections
+        pw-jack jack_disconnect "R24 Analog Surround 7.1:capture_FL" SuperCollider:in_1 2>/dev/null || true
+        pw-jack jack_disconnect "R24 Analog Surround 7.1:capture_FR" SuperCollider:in_1 2>/dev/null || true
+        pw-jack jack_disconnect "R24 Analog Surround 7.1:capture_RL" SuperCollider:in_1 2>/dev/null || true
+        pw-jack jack_disconnect "R24 Analog Surround 7.1:capture_RR" SuperCollider:in_1 2>/dev/null || true
+        pw-jack jack_disconnect "R24 Analog Surround 7.1:capture_FC" SuperCollider:in_1 2>/dev/null || true
+        pw-jack jack_disconnect "R24 Analog Surround 7.1:capture_SL" SuperCollider:in_1 2>/dev/null || true
+        pw-jack jack_disconnect "R24 Analog Surround 7.1:capture_SR" SuperCollider:in_1 2>/dev/null || true
+        # Connect only CH1
+        pw-jack jack_connect "R24 Analog Surround 7.1:capture_FL" SuperCollider:in_1 2>/dev/null || true
+        echo "[OK] R24 CH1 connected to SuperCollider input 1"
         break
     fi
     sleep 0.5
 done
 
 # --- 2. sclang + beacon.scd ---
-echo "[2/3] sclang + beacon.scd..."
+echo "[2/3] sclang + beacon.scd (mode: $BEACON_SOURCE)..."
 # sclang needs a pseudo-TTY to stay alive (REPL loop). script(1) provides one.
-QT_QPA_PLATFORM=offscreen script -q -c 'sclang -u 57120 -d . beacon.scd' /dev/null > /tmp/sclang.log 2>&1 &
+QT_QPA_PLATFORM=offscreen BEACON_SOURCE=$BEACON_SOURCE script -q -c 'sclang -u 57120 -d . beacon.scd' /dev/null > /tmp/sclang.log 2>&1 &
 SCLANG_PID=$!
 echo "      -> PID $SCLANG_PID (log: /tmp/sclang.log)"
 sleep 8
