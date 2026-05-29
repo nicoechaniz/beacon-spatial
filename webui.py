@@ -17,6 +17,8 @@ import os, json, glob
 
 app = Flask(__name__)
 osc = SimpleUDPClient("127.0.0.1", 57120)
+# Second OSC target: PD replica sclang on port 9001 (when running)
+osc_pd = SimpleUDPClient("127.0.0.1", 9001)
 
 CONFIG_DIR = os.path.expanduser("~/Projects/beacon-spatial/configs")
 os.makedirs(CONFIG_DIR, exist_ok=True)
@@ -561,6 +563,11 @@ def control():
     addr = data.get("address", "")
     val = data.get("value", 0)
     osc.send_message(addr, float(val))
+    # Also forward to PD replica sclang (port 9001) if running
+    try:
+        osc_pd.send_message(addr, float(val))
+    except Exception:
+        pass  # PD replica not running — silently ignore
     return jsonify({"ok": True})
 
 @app.route("/save_config", methods=["POST"])
