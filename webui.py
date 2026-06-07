@@ -401,6 +401,22 @@ HTML = """<!DOCTYPE html>
                     </div>
                 </div>
 
+                <!-- Sensor Debug Panel (visible, no DevTools needed) -->
+                <div class="mt-4 border-t border-slate-800 pt-3">
+                    <div class="flex items-center justify-between mb-1.5 px-0.5">
+                        <span class="control-label">SENSOR DEBUG</span>
+                        <button onclick="updateSensorDebugPanel()"
+                                class="text-[10px] px-2 py-0.5 rounded-lg border border-slate-700 hover:bg-slate-900 text-slate-400">Refresh</button>
+                    </div>
+                    <div id="sensor-debug-panel"
+                         class="bg-[#0a0c12] border border-slate-800 rounded-2xl p-3 text-[10px] font-mono leading-relaxed text-slate-400 space-y-0.5">
+                        <!-- JS populated -->
+                    </div>
+                    <div class="text-[9px] text-slate-500 mt-1 px-0.5 leading-relaxed">
+                        Shows: browser support, last event timestamps, listener state, fetch count, errors. Tap Refresh to update.
+                    </div>
+                </div>
+
                 <div class="flex flex-wrap gap-2 mt-3 text-xs">
                     <button onclick="saveSensorConfigToPreset()"
                             class="flex-1 sm:flex-none px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-2xl text-emerald-400 text-xs font-medium flex items-center justify-center gap-2">
@@ -1267,6 +1283,9 @@ HTML = """<!DOCTYPE html>
             const last = localStorage.getItem('beacon.activeTab') || 'manual';
             switchTab(last);
 
+            // First paint of sensor debug panel
+            updateSensorDebugPanel();
+
             // Keyboard hint
             console.log('%c[Beacon] Excellent UI loaded. Sensors ready for phone.', 'color:#64748b');
         }
@@ -1334,6 +1353,145 @@ HTML = """<!DOCTYPE html>
                 }
             });
         }
+
+        // === Sensor Debug Panel (no DevTools required) ===
+        // Counter of received events — updated by listeners, read by debug panel.
+        let sensorEventCounts = {deviceorientation: 0, devicemotion: 0, lastOrientTs: 0, lastMotionTs: 0};
+        let sensorDebugErrors = [];
+        let sensorFetchCount = 0;
+        let sensorLastFetchTs = 0;
+        let sensorFirstError = null;
+        let sensorDebugLastRender = 0;
+
+        function updateSensorDebugPanel() {
+            // Throttle: skip if last render was <100ms ago (prevents excessive work
+            // when called from the setInterval AND from event listeners).
+            const el = document.getElementById('sensor-debug-panel');
+            if (!el) return;
+            const now = Date.now();
+            if (now - sensorDebugLastRender < 100) return;
+            sensorDebugLastRender = now;
+
+            // Detect support (defensive: every property read wrapped in try)
+            let hasOrient = false, hasMotion = false, needsPerm = false;
+            let isSecure = false, isHttps = false, isLocal = false, uaStr = 'unknown';
+            try {
+                hasOrient = typeof DeviceOrientationEvent !== 'undefined';
+                hasMotion = typeof DeviceMotionEvent !== 'undefined';
+                needsPerm = !!(hasOrient && typeof DeviceOrientationEvent.requestPermission === 'function');
+                isSecure = !!window.isSecureContext;
+                isHttps = location.protocol === 'https:';
+                isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+                const m = (navigator.userAgent || '').match(/(iPhone|iPad|iPod|Android|Macintosh|Linux|Windows)/i);
+                uaStr = m ? m[0] : 'unknown';
+            } catch (e) {
+                sensorFirstError = sensorFirstError || ('detect: ' + e.message);
+            }
+
+            const orientAge = sensorEventCounts.lastOrientTs ? Math.round((now - sensorEventCounts.lastOrientTs) / 100) / 10 : null;
+            const motionAge = sensorEventCounts.lastMotionTs ? Math.round((now - sensorEventCounts.lastMotionTs) / 100) / 10 : null;
+            const fetchAge = sensorLastFetchTs ? Math.round((now - sensorLastFetchTs) / 100) / 10 : null;
+
+            // Build with textContent (no HTML injection / no crash on null)
+            const lines = [
+                'browser:        ' + uaStr + ' / ' + location.protocol + '//' + location.hostname,
+                'secureContext:  ' + isSecure,
+                'HTTPS/local?    ' + (isHttps || isLocal ? 'YES ✓' : 'NO ✗ (sensors may be blocked on LAN http)'),
+                'DeviceOrient:   ' + (hasOrient ? 'YES' : 'NO'),
+                'DeviceMotion:   ' + (hasMotion ? 'YES' : 'NO'),
+                'iOS perm API:   ' + (needsPerm ? 'YES (tap Permissions!)' : 'no'),
+                'LIVE state:     ' + (liveSensorsActive ? 'ON' : 'OFF'),
+                'orient events:  ' + sensorEventCounts.deviceorientation + (orientAge !== null ? '  (last: ' + orientAge + 's ago)' : '  (never)'),
+                'motion events:  ' + sensorEventCounts.devicemotion + (motionAge !== null ? '  (last: ' + motionAge + 's ago)' : '  (never)'),
+                'fetch /control: ' + sensorFetchCount + (fetchAge !== null ? '  (last: ' + fetchAge + 's ago)' : '  (never)'),
+                'last error:     ' + (sensorFirstError || 'none'),
+            ];
+
+            // textContent assignment is safe (no HTML parsing, no XSS, no null crash)
+            // Use String.fromCharCode(10) as a real newline (the JS escape
+            // sequence breaks when this script is inside a Python
+            // triple-quoted string and a literal newline creeps in).
+            const NL = String.fromCharCode(10);
+            try {
+                el.textContent = lines.join(NL);
+            } catch (e) {
+                // Last-ditch fallback
+            }
+
+            // Add warnings as separate <div>s (only when applicable)
+            try {
+                let warnings = '';
+                if (!isHttps && !isLocal) {
+                    warnings += '<div class="text-amber-400 mt-1.5">⚠ sensors are BLOCKED on http://&lt;LAN-IP&gt;. Use https:// or tunnel via cloudflared/ngrok.</div>';
+                }
+                if (needsPerm && sensorEventCounts.deviceorientation === 0 && liveSensorsActive) {
+                    warnings += '<div class="text-amber-400 mt-1.5">⚠ iOS: tap the Permissions button (top bar) — sensors need a one-time gesture unlock.</div>';
+                }
+                if (hasOrient && liveSensorsActive && sensorEventCounts.deviceorientation === 0 && (orientAge === null || orientAge > 2)) {
+                    warnings += '<div class="text-amber-400 mt-1.5">⚠ LIVE is ON but no orientation events have arrived in 2s+.</div>';
+                }
+                // Append warnings as a sibling node we control
+                let warnEl = document.getElementById('sensor-debug-warnings');
+                if (!warnEl && warnings) {
+                    warnEl = document.createElement('div');
+                    warnEl.id = 'sensor-debug-warnings';
+                    el.parentNode?.insertBefore(warnEl, el.nextSibling);
+                }
+                if (warnEl) warnEl.innerHTML = warnings;
+            } catch (e) {
+                // ignore
+            }
+        }
+
+        // Hook into listeners to count events.
+        // We add our own listeners that ONLY count, so they coexist with
+        // the real sensor listeners installed by startSensorListeners().
+        window.addEventListener('deviceorientation', () => {
+            sensorEventCounts.deviceorientation++;
+            sensorEventCounts.lastOrientTs = Date.now();
+        }, true);
+        window.addEventListener('devicemotion', () => {
+            sensorEventCounts.devicemotion++;
+            sensorEventCounts.lastMotionTs = Date.now();
+        }, true);
+
+        // Hook fetch to count /control calls (defensive: check Function is OK)
+        try {
+            const __origFetch = window.fetch;
+            if (__origFetch && !window.__beaconFetchHooked) {
+                window.__beaconFetchHooked = true;
+                window.fetch = function(url, opts) {
+                    try {
+                        const u = (typeof url === 'string') ? url : (url?.url || '');
+                        if (u.includes('/control')) {
+                            sensorFetchCount++;
+                            sensorLastFetchTs = Date.now();
+                        }
+                    } catch (e) { /* ignore */ }
+                    return __origFetch.apply(this, arguments);
+                };
+            }
+        } catch (e) {
+            sensorFirstError = sensorFirstError || ('fetch hook: ' + e.message);
+        }
+
+        // Capture errors globally
+        try {
+            window.addEventListener('error', e => {
+                sensorFirstError = sensorFirstError || (e.message + ' @ ' + (e.filename || '') + ':' + (e.lineno || ''));
+            });
+            window.addEventListener('unhandledrejection', e => {
+                sensorFirstError = sensorFirstError || 'promise: ' + String(e.reason).substring(0, 200);
+            });
+        } catch (e) { /* ignore */ }
+
+        // Auto-refresh the debug panel every 500ms
+        setInterval(updateSensorDebugPanel, 500);
+
+        // Also update right after a sensor event fires (immediate feedback)
+        const __updateAfterOrient = () => { sensorDebugLastRender = 0; updateSensorDebugPanel(); };
+        window.addEventListener('deviceorientation', __updateAfterOrient, true);
+        window.addEventListener('devicemotion', __updateAfterOrient, true);
 
         function loadConfigFromLargeSelect() {
             const sel = document.getElementById('load-select-large');
