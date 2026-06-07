@@ -1,39 +1,48 @@
 #!/bin/bash
 #
 # start-beacon.sh - Launcher for Harmonic Beacon Spatializer
-# (SuperCollider scsynth + sclang + Flask Web UI)
+# (SuperCollider scsynth + sclang + Flask Web UI [+ optional HTTPS tunnel])
 #
 # Starts full stack in project directory:
 #   1. scsynth via pw-jack (PipeWire JACK compat) on UDP 57110
 #   2. sclang (offscreen Qt) with beacon.scd (OSC receivers on 57120)
 #   3. Flask web UI from ./venv (http://localhost:5050)
+#   4. [optional] cloudflared quick-tunnel — gives a public https://
+#      URL so phone browsers treat the page as a "secure context"
+#      and allow DeviceOrientation / DeviceMotion sensor APIs.
 #
 # PipeWire provides JACK compatibility (pw-jack), so no separate jackd needed.
 # This avoids ALSA exclusive-mode conflicts that break desktop audio.
 #
 # Proper Ctrl-C / SIGTERM cleanup: kills all tracked child PIDs.
-# Usage: ./start-beacon.sh [--live|--file]
+# Usage: ./start-beacon.sh [--live|--file] [--no-https]
 #   --live (default): SoundIn.ar(0) from R24 CH1
 #   --file:           PlayBuf with harmonic_beacon_2026_05_13_session.wav
+#   --no-https:       skip the cloudflared tunnel (LAN-only mode)
 # Requires: pw-jack, scsynth, sclang in PATH + ./venv with flask + python-osc
+# Optional: cloudflared at ~/.local/bin/cloudflared (for --no-https bypass)
 
 set -u
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$PROJECT_DIR"
 
-# Parse source mode
+# Parse args
 BEACON_SOURCE="live"
-if [ "${1:-}" == "--file" ]; then
-    BEACON_SOURCE="file"
-elif [ "${1:-}" == "--live" ]; then
-    BEACON_SOURCE="live"
-fi
+ENABLE_HTTPS=1
+for arg in "$@"; do
+    case "$arg" in
+        --file)   BEACON_SOURCE="file" ;;
+        --live)   BEACON_SOURCE="live" ;;
+        --no-https) ENABLE_HTTPS=0 ;;
+    esac
+done
 export BEACON_SOURCE
 
 echo "========================================"
 echo "  Harmonic Beacon Spatializer"
 echo "  Source: $BEACON_SOURCE"
+echo "  HTTPS tunnel: $([ $ENABLE_HTTPS -eq 1 ] && echo 'yes (cloudflared)' || echo 'no  (--no-https)')"
 echo "========================================"
 echo "Dir: $PROJECT_DIR"
 echo ""
@@ -41,17 +50,19 @@ echo ""
 SCSYNTH_PID=""
 SCLANG_PID=""
 WEBUI_PID=""
+CFD_PID=""
+TUNNEL_URL=""
 
 cleanup() {
     echo ""
     echo "[INFO] Shutdown signal. Stopping children..."
-    for pid in "$WEBUI_PID" "$SCLANG_PID" "$SCSYNTH_PID"; do
+    for pid in "$CFD_PID" "$WEBUI_PID" "$SCLANG_PID" "$SCSYNTH_PID"; do
         if [ -n "$pid" ]; then
             kill "$pid" 2>/dev/null || true
         fi
     done
     sleep 0.6
-    for pid in "$WEBUI_PID" "$SCLANG_PID" "$SCSYNTH_PID"; do
+    for pid in "$CFD_PID" "$WEBUI_PID" "$SCLANG_PID" "$SCSYNTH_PID"; do
         if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
             kill -9 "$pid" 2>/dev/null || true
         fi
@@ -130,6 +141,35 @@ $VENV_PY webui.py > /tmp/webui.log 2>&1 &
 WEBUI_PID=$!
 echo "      -> PID $WEBUI_PID (log: /tmp/webui.log)"
 
+# --- 4. [Optional] cloudflared HTTPS tunnel ---
+# A LAN-IP http:// page has no "secure context", so phone browsers
+# (Android Chrome, iOS Safari) block DeviceOrientation / DeviceMotion.
+# The cloudflared quick-tunnel gives a public https:// URL that does
+# satisfy the secure-context requirement, so phone sensors work.
+if [ $ENABLE_HTTPS -eq 1 ]; then
+    CFD_BIN="$HOME/.local/bin/cloudflared"
+    if [ ! -x "$CFD_BIN" ]; then
+        echo "[WARN] cloudflared not found at $CFD_BIN — skipping HTTPS tunnel."
+        echo "       Phone sensors will NOT work over LAN http://."
+        echo "       Install with: curl -sL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o $CFD_BIN && chmod +x $CFD_BIN"
+    else
+        echo "[4/4] cloudflared quick-tunnel..."
+        # Run cloudflared, capture log, find the URL when ready
+        $CFD_BIN tunnel --url http://127.0.0.1:5050 --no-autoupdate > /tmp/cloudflared.log 2>&1 &
+        CFD_PID=$!
+        echo "      -> PID $CFD_PID (log: /tmp/cloudflared.log)"
+
+        # Wait up to 15s for the URL to appear in the log
+        for i in $(seq 1 30); do
+            TUNNEL_URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' /tmp/cloudflared.log 2>/dev/null | head -1 || true)
+            if [ -n "$TUNNEL_URL" ]; then
+                break
+            fi
+            sleep 0.5
+        done
+    fi
+fi
+
 # --- Ready ---
 echo ""
 echo "========================================"
@@ -138,7 +178,13 @@ echo "========================================"
 echo "  Web UI : http://localhost:5050"
 echo "  OSC    : 127.0.0.1:57120 (sclang)"
 echo "  Server : 127.0.0.1:57110 (scsynth)"
-echo "  Logs   : /tmp/{scsynth,sclang,webui}.log"
+if [ -n "$TUNNEL_URL" ]; then
+    echo ""
+    echo "  >>> HTTPS TUNNEL (for phone sensors) <<<"
+    echo "  >>> $TUNNEL_URL"
+    echo "  >>> Open this URL on your phone to enable sensor access."
+fi
+echo "  Logs   : /tmp/{scsynth,sclang,webui,cloudflared}.log"
 echo "========================================"
 echo "Press Ctrl-C to stop everything cleanly."
 echo ""
