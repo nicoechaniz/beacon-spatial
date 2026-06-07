@@ -1006,8 +1006,7 @@ HTML = """<!DOCTYPE html>
                 lines.push(`${sensorKey.toUpperCase()} → ${map.param} ${map.bands}: ${computed.toFixed(2)}`);
             });
 
-            drivingEl.textContent = lines.length ? lines.join('
-') : '(no active mappings)';
+            drivingEl.textContent = lines.length ? lines.join('\\n') : '(no active mappings)';
         }
 
         function buildSensorCards() {
