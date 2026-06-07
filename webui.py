@@ -39,342 +39,462 @@ BANDS = [
     {"freq": "1800+", "color": "#dfe6e9", "default_gain": 1.0, "default_az": 0,   "default_dist": 2.0, "default_solo": 0},
 ]
 
-HTML = """
-<!DOCTYPE html>
-<html>
+HTML = """<!DOCTYPE html>
+<html lang="en">
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Harmonic Beacon Spatializer</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+    <title>Harmonic Beacon • Spatializer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&amp;family=Space+Grotesk:wght@500;600&amp;display=swap');
+        
+        :root {
+            --accent: #22d3ee;
+        }
+        
         body {
-            background: #0a0a0f;
-            color: #e0e0e0;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            padding: 20px;
-            min-height: 100vh;
+            font-family: 'Inter', system_ui, sans-serif;
         }
-        h1 {
-            text-align: center;
-            margin-bottom: 8px;
-            font-weight: 300;
-            letter-spacing: 2px;
-            font-size: 1.5rem;
-        }
-        .subtitle {
-            text-align: center;
-            color: #666;
-            margin-bottom: 12px;
-            font-size: 0.85rem;
-        }
-        .spectrum {
-            display: flex;
-            align-items: flex-end;
-            justify-content: center;
-            gap: 4px;
-            height: 80px;
-            max-width: 1200px;
-            margin: 0 auto 20px;
-            padding: 10px;
-            background: #0d0d14;
-            border-radius: 8px;
-            border: 1px solid #1a1a2e;
-        }
-        .spectrum-bar {
-            flex: 1;
-            min-width: 4px;
-            border-radius: 2px 2px 0 0;
-            transition: height 0.1s;
-            opacity: 0.85;
-        }
-        .grid {
-            display: grid;
-            grid-template-columns: repeat(13, 1fr);
-            gap: 8px;
-            max-width: 1200px;
-            margin: 0 auto 20px;
-        }
-        .band {
-            background: #12121a;
-            border-radius: 10px;
-            padding: 10px 4px;
-            text-align: center;
-            border: 1px solid #1a1a2e;
-            transition: opacity 0.2s;
-        }
-        .band-label {
-            font-size: 0.65rem;
+        
+        .font-display {
+            font-family: 'Space Grotesk', 'Inter', sans-serif;
             font-weight: 600;
-            margin-bottom: 8px;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
+            letter-spacing: -0.02em;
         }
-        .fader-container {
-            height: 120px;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            margin-bottom: 8px;
+
+        .section {
+            background: #0f1117;
+            border: 1px solid #1f2937;
         }
-        input[type=range][orient=vertical] {
-            writing-mode: bt-lr;
-            -webkit-appearance: slider-vertical;
-            width: 24px;
-            height: 110px;
+
+        .band-card {
+            background: #0f1117;
+            border: 1px solid #1f2937;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
         }
-        input[type=range] {
-            -webkit-appearance: none;
-            background: transparent;
-            cursor: pointer;
+        
+        .band-card:hover {
+            border-color: #374151;
+            transform: translateY(-1px);
         }
-        input[type=range]::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            height: 14px;
-            width: 14px;
-            border-radius: 50%;
-            background: currentColor;
-            margin-top: -5px;
-            box-shadow: 0 0 6px currentColor;
+
+        .slider {
+            accent-color: #22d3ee;
         }
-        input[type=range]::-webkit-slider-runnable-track {
-            height: 4px;
-            background: #2a2a3e;
-            border-radius: 2px;
+
+        .value-display {
+            font-variant-numeric: tabular-nums;
+            font-feature-settings: "tnum";
         }
-        .param {
-            margin-bottom: 6px;
+
+        .sensor-card {
+            background: #0f1117;
+            border: 1px solid #1f2937;
+            transition: all 0.2s ease;
         }
-        .param label {
-            display: block;
-            font-size: 0.55rem;
-            color: #888;
-            margin-bottom: 2px;
-            text-transform: uppercase;
+
+        .live-dot {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
         }
-        .param input[type=range] {
-            width: 100%;
-        }
-        .value {
+
+        .param-pill {
+            background: #1f2937;
             font-size: 0.65rem;
-            color: #aaa;
-            margin-top: 1px;
+            padding: 1px 6px;
+            border-radius: 9999px;
+            font-weight: 600;
         }
-        .solo-btn {
-            display: inline-block;
-            padding: 3px 8px;
-            font-size: 0.55rem;
+
+        .driver-row {
+            background: #11151f;
+            border: 1px solid #1f2937;
+            font-family: ui-monospace, monospace;
+            font-size: 0.75rem;
+        }
+
+        .spectrum-bar {
+            transition: height 80ms linear;
+        }
+
+        .navy {
+            background: #0a0c12;
+        }
+
+        .control-label {
+            font-size: 0.625rem;
+            letter-spacing: 0.5px;
+            font-weight: 600;
+            color: #64748b;
+        }
+
+        .big-value {
+            font-size: 1.1rem;
+            font-weight: 600;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .modern-slider {
+            height: 6px;
+            background: #1f2937;
+            border-radius: 999px;
+            outline: none;
+        }
+
+        .modern-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 16px;
+            width: 16px;
+            background: #22d3ee;
+            border-radius: 999px;
+            box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.2);
+            cursor: pointer;
+            transition: all 0.1s ease;
+        }
+
+        .modern-slider::-webkit-slider-thumb:hover {
+            box-shadow: 0 0 0 5px rgba(34, 211, 238, 0.35);
+        }
+
+        .band-header {
+            font-size: 0.7rem;
             font-weight: 700;
             letter-spacing: 0.5px;
-            text-transform: uppercase;
-            border: 1px solid #444;
-            border-radius: 3px;
-            background: transparent;
-            color: #666;
-            cursor: pointer;
-            margin-top: 2px;
-            transition: all 0.15s;
         }
-        .solo-btn.active {
-            background: #fff;
-            color: #000;
-            border-color: #fff;
-            box-shadow: 0 0 8px rgba(255,255,255,0.4);
-        }
-        .band.muted {
-            opacity: 0.3;
-        }
-        .mix-section, .config-section {
-            max-width: 1200px;
-            margin: 0 auto 16px;
-            background: #12121a;
+
+        .canvas-orientation {
+            background: #11151f;
             border-radius: 12px;
-            padding: 16px;
-            border: 1px solid #1a1a2e;
+            border: 1px solid #1f2937;
         }
-        .mix-section h2, .config-section h2 {
-            font-size: 0.85rem;
-            font-weight: 400;
-            margin-bottom: 12px;
-            color: #888;
-            text-transform: uppercase;
-            letter-spacing: 2px;
-        }
-        .mix-grid {
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 16px;
-        }
-        .mix-param {
-            text-align: center;
-        }
-        .mix-param input[type=range] {
-            width: 100%;
-        }
-        .config-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr 1fr;
-            gap: 12px;
-            align-items: end;
-        }
-        .config-col {
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-        }
-        .config-col label {
-            font-size: 0.6rem;
-            color: #888;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-        .config-col input[type=text], .config-col select {
-            background: #0d0d14;
-            border: 1px solid #2a2a3e;
-            color: #e0e0e0;
-            padding: 8px;
-            border-radius: 6px;
-            font-size: 0.8rem;
-        }
-        .config-col button {
-            padding: 8px;
-            border-radius: 6px;
-            border: 1px solid;
-            background: transparent;
-            cursor: pointer;
-            font-size: 0.75rem;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-        .btn-reset { color: #e67e22; border-color: #e67e22; }
-        .btn-reset:hover { background: #e67e22; color: #000; }
-        .btn-save { color: #2ecc71; border-color: #2ecc71; }
-        .btn-save:hover { background: #2ecc71; color: #000; }
-        .btn-load { color: #3498db; border-color: #3498db; }
-        .btn-load:hover { background: #3498db; color: #000; }
-        .section-label {
-            text-align: center;
-            color: #555;
+
+        .stat {
             font-size: 0.7rem;
-            margin: 12px 0 6px;
-            letter-spacing: 2px;
-            text-transform: uppercase;
-        }
-        @media (max-width: 1100px) {
-            .grid { grid-template-columns: repeat(7, 1fr); }
-        }
-        @media (max-width: 768px) {
-            .grid { grid-template-columns: repeat(4, 1fr); }
-            .mix-grid { grid-template-columns: repeat(2, 1fr); }
-            .config-grid { grid-template-columns: 1fr; }
-        }
-        @media (max-width: 480px) {
-            .grid { grid-template-columns: repeat(3, 1fr); }
+            color: #64748b;
         }
     </style>
 </head>
-<body>
-    <h1>Harmonic Beacon</h1>
-    <p class="subtitle">13-band binaural spatializer — 40Hz series + high harmonics</p>
-    
-    <div class="spectrum" id="spectrum">
-        {% for band in bands %}
-        <div class="spectrum-bar" id="spec{{ loop.index }}" style="background: {{ band.color }}; height: {{ band.default_gain / 3.0 * 100 }}%"></div>
-        {% endfor %}
-    </div>
-    
-    <div class="section-label">Low bands (40Hz BW)</div>
-    <div class="grid">
-        {% for band in bands %}
-        <div class="band" id="band{{ loop.index }}" style="color: {{ band.color }}">
-            <div class="band-label" style="color: {{ band.color }}">{{ band.freq }}Hz</div>
-            <div class="fader-container">
-                <input type="range" orient="vertical" min="0" max="3" step="0.05"
-                       value="{{ band.default_gain }}" id="gain{{ loop.index }}"
-                       oninput="send('gain', {{ loop.index }}, this.value); show(this, 'g{{ loop.index }}'); updateSpec({{ loop.index }}, this.value)">
+<body class="bg-[#0a0c12] text-slate-200">
+    <!-- Top Bar -->
+    <div class="sticky top-0 z-50 bg-[#0a0c12]/95 backdrop-blur border-b border-slate-800">
+        <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+            <div class="flex items-center gap-x-3">
+                <div class="flex items-center gap-x-2">
+                    <div class="w-8 h-8 rounded-xl bg-gradient-to-br from-cyan-400 to-teal-500 flex items-center justify-center">
+                        <i class="fa-solid fa-satellite text-white text-lg"></i>
+                    </div>
+                    <div>
+                        <div class="font-display text-2xl font-semibold tracking-tighter">Beacon</div>
+                        <div class="text-[10px] text-slate-500 -mt-1">HARMONIC SPATIALIZER</div>
+                    </div>
+                </div>
+                <div class="hidden sm:block text-xs px-2.5 py-1 rounded-full bg-slate-900 border border-slate-800 text-slate-400">
+                    13-band • 40Hz series
+                </div>
             </div>
-            <div class="value" id="g{{ loop.index }}">{{ band.default_gain }}</div>
-            <div class="param">
-                <label>Az</label>
-                <input type="range" min="-180" max="180" step="1"
-                       value="{{ band.default_az }}" id="az{{ loop.index }}"
-                       oninput="send('az', {{ loop.index }}, this.value); show(this, 'a{{ loop.index }}')">
-                <div class="value" id="a{{ loop.index }}">{{ band.default_az }}&deg;</div>
-            </div>
-            <div class="param">
-                <label>Dist</label>
-                <input type="range" min="0" max="10" step="0.1"
-                       value="{{ band.default_dist }}" id="dist{{ loop.index }}"
-                       oninput="send('dist', {{ loop.index }}, this.value); show(this, 'd{{ loop.index }}')">
-                <div class="value" id="d{{ loop.index }}">{{ band.default_dist }}</div>
-            </div>
-            {% if band.default_q is defined %}
-            <div class="param">
-                <label>Q</label>
-                <input type="range" min="0.01" max="2.0" step="0.001"
-                       value="{{ band.default_q }}" id="q{{ loop.index }}"
-                       oninput="send('q', {{ loop.index }}, this.value); show(this, 'q{{ loop.index }}')">
-                <div class="value" id="q{{ loop.index }}">{{ band.default_q }}</div>
-            </div>
-            {% endif %}
-            <button id="s{{ loop.index }}" class="solo-btn"
-                    onclick="toggleSolo({{ loop.index }}, this)">Solo</button>
-        </div>
-        {% endfor %}
-    </div>
-    
-    <div class="mix-section">
-        <h2>Mix & Master</h2>
-        <div class="mix-grid">
-            <div class="mix-param">
-                <label style="display:block; font-size:0.7rem; color:#1abc9c; margin-bottom:8px;">MIX (wet)</label>
-                <input type="range" min="0" max="1" step="0.01" value="0.85" id="mix"
-                       oninput="sendGlobal('mix', this.value); show(this, 'vmix')">
-                <div class="value" id="vmix">0.85</div>
-            </div>
-            <div class="mix-param">
-                <label style="display:block; font-size:0.7rem; color:#34495e; margin-bottom:8px;">MASTER</label>
-                <input type="range" min="0" max="2" step="0.01" value="0.9" id="master"
-                       oninput="sendGlobal('master', this.value); show(this, 'vmaster')">
-                <div class="value" id="vmaster">0.90</div>
-            </div>
-            <div class="mix-param">
-                <label style="display:block; font-size:0.7rem; color:#e74c3c; margin-bottom:8px;">REC</label>
-                <button id="rec-btn" class="solo-btn" style="border-color:#e74c3c; color:#e74c3c; width:100%; padding:6px;"
-                        onclick="toggleRecord(this)">RECORD</button>
-                <div class="value" id="vrec">ready</div>
-            </div>
-            <div class="mix-param">
-                <label style="display:block; font-size:0.7rem; color:#e67e22; margin-bottom:8px;">RESET</label>
-                <button class="solo-btn" style="border-color:#e67e22; color:#e67e22; width:100%; padding:6px;"
-                        onclick="resetAll()">RESET ALL</button>
-                <div class="value" id="vreset">defaults</div>
+
+            <!-- Global Sensor Controls -->
+            <div class="flex items-center gap-x-2">
+                <!-- Influence -->
+                <div class="flex items-center gap-x-2 bg-slate-900 border border-slate-800 rounded-2xl px-3 py-1.5">
+                    <div class="flex items-center gap-x-1.5">
+                        <i class="fa-solid fa-waveform-lines text-cyan-400 text-sm"></i>
+                        <span class="text-xs font-medium text-slate-400">INFLUENCE</span>
+                    </div>
+                    <input type="range" id="sensor-influence" 
+                           class="w-24 accent-cyan-400" 
+                           min="0" max="1" step="0.01" value="0.65"
+                           oninput="updateSensorInfluence(this.value)">
+                    <span id="influence-val" class="font-mono text-sm font-semibold w-8 text-right text-cyan-300">0.65</span>
+                </div>
+
+                <!-- Live Toggle -->
+                <button onclick="toggleLiveSensorsUI()"
+                        id="live-btn"
+                        class="flex items-center gap-x-2 px-4 py-1.5 rounded-2xl text-sm font-medium border transition-all active:scale-[0.985]
+                               bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20">
+                    <i class="fa-solid fa-play text-xs"></i>
+                    <span id="live-text" class="font-semibold">LIVE</span>
+                </button>
+
+                <!-- Permissions -->
+                <button onclick="requestSensorPermissions()"
+                        class="flex items-center gap-x-2 px-3 py-1.5 text-xs font-medium rounded-2xl border border-slate-700 hover:bg-slate-900 transition-colors">
+                    <i class="fa-solid fa-mobile-screen-button"></i>
+                    <span class="hidden sm:inline">Permissions</span>
+                </button>
             </div>
         </div>
     </div>
-    
-    <div class="config-section">
-        <h2>Presets</h2>
-        <div class="config-grid">
-            <div class="config-col">
-                <label>Save current as</label>
-                <input type="text" id="save-name" placeholder="my-preset">
-                <button class="btn-save" onclick="saveConfig()">Save</button>
+
+    <div class="max-w-7xl mx-auto px-4 pb-8 pt-4">
+        
+        <!-- Status + Presets -->
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+            <div class="flex items-center gap-2">
+                <div id="sensor-status" 
+                     class="text-xs px-3 py-1 bg-slate-900 border border-slate-800 rounded-full text-slate-400 font-medium flex items-center gap-1.5">
+                    <i class="fa-solid fa-circle text-emerald-400 text-[8px]"></i>
+                    <span>Ready</span>
+                </div>
+                <div id="config-status" class="text-xs px-3 py-1 bg-slate-900 border border-slate-800 rounded-full text-slate-400 font-medium">
+                    Presets ready
+                </div>
             </div>
-            <div class="config-col">
-                <label>Load preset</label>
-                <select id="load-select"><option value="">-- select --</option></select>
-                <button class="btn-load" onclick="loadConfig()">Load</button>
-            </div>
-            <div class="config-col">
-                <label>Status</label>
-                <div class="value" id="config-status" style="padding-top:8px;">Ready</div>
+
+            <!-- Presets -->
+            <div class="flex items-center gap-2">
+                <div class="flex items-center bg-slate-900 border border-slate-800 rounded-2xl p-1 text-sm">
+                    <select id="load-select" 
+                            class="bg-transparent px-3 py-1 text-sm outline-none border-r border-slate-700 text-slate-300">
+                        <option value="">Load preset...</option>
+                    </select>
+                    <button onclick="loadConfig()" 
+                            class="px-4 py-1 text-cyan-400 hover:text-cyan-300 font-medium flex items-center gap-1.5 text-sm">
+                        <i class="fa-solid fa-download text-xs"></i>
+                        <span>Load</span>
+                    </button>
+                </div>
+                
+                <div class="flex items-center bg-slate-900 border border-slate-800 rounded-2xl p-1">
+                    <input id="save-name" type="text" placeholder="preset name" 
+                           class="bg-transparent px-3 py-1 text-sm outline-none w-28 text-slate-300 placeholder:text-slate-600">
+                    <button onclick="saveConfig()" 
+                            class="px-4 py-1 text-emerald-400 hover:text-emerald-300 font-medium flex items-center gap-1.5 text-sm">
+                        <i class="fa-solid fa-save text-xs"></i>
+                        <span>Save</span>
+                    </button>
+                </div>
             </div>
         </div>
+
+        <!-- Spectrum Visual -->
+        <div class="mb-5">
+            <div class="flex items-end gap-1 h-16 px-1 bg-slate-950/70 border border-slate-800 rounded-3xl p-2" id="spectrum">
+                {% for band in bands %}
+                <div class="flex-1 flex flex-col items-center">
+                    <div class="spectrum-bar w-full rounded-t-full transition-all duration-75" 
+                         id="spec{{ loop.index }}"
+                         style="background: {{ band.color }}; height: {{ (band.default_gain / 3.0 * 100)|int }}%; min-height: 4px;"></div>
+                    <div class="text-[9px] text-slate-500 mt-0.5 font-mono">{{ band.freq }}</div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+
+        <!-- Main Grid: Bands + Sensors -->
+        <div class="grid grid-cols-1 xl:grid-cols-12 gap-5">
+            
+            <!-- MANUAL SPATIAL CONTROLS -->
+            <div class="xl:col-span-7">
+                <div class="flex items-center justify-between mb-2 px-1">
+                    <div class="flex items-center gap-x-2">
+                        <span class="font-semibold tracking-tight text-lg">Manual Controls</span>
+                        <span class="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-500">13 bands</span>
+                    </div>
+                    <button onclick="resetAll()" 
+                            class="text-xs flex items-center gap-1.5 px-3 py-1 rounded-xl border border-orange-500/30 text-orange-400 hover:bg-orange-500/10 transition-colors">
+                        <i class="fa-solid fa-undo text-xs"></i>
+                        <span class="font-medium">Reset</span>
+                    </button>
+                </div>
+
+                <!-- Band Cards Grid -->
+                <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-7 gap-2" id="band-grid">
+                    {% for band in bands %}
+                    <div class="band-card rounded-2xl p-2.5 border border-slate-800" id="band{{ loop.index }}" style="border-color: {{ band.color }}20;">
+                        <div class="flex items-center justify-between mb-1.5">
+                            <div>
+                                <div class="band-header font-mono" style="color: {{ band.color }};">{{ band.freq }} Hz</div>
+                            </div>
+                            <button onclick="toggleSolo({{ loop.index }}, this)" id="s{{ loop.index }}"
+                                    class="solo-btn text-[9px] px-2 py-px border border-slate-700 hover:border-slate-600 rounded-lg font-bold text-slate-400 active:bg-white active:text-black transition-all">SOLO</button>
+                        </div>
+
+                        <!-- Gain -->
+                        <div class="mb-2">
+                            <div class="flex justify-between items-baseline mb-0.5">
+                                <span class="control-label">GAIN</span>
+                                <span id="g{{ loop.index }}" class="value-display font-mono text-cyan-300 text-sm">{{ band.default_gain }}</span>
+                            </div>
+                            <input type="range" min="0" max="3" step="0.05" value="{{ band.default_gain }}" id="gain{{ loop.index }}"
+                                   class="modern-slider w-full accent-cyan-400"
+                                   oninput="send('gain', {{ loop.index }}, this.value); show(this, 'g{{ loop.index }}'); updateSpec({{ loop.index }}, this.value)">
+                        </div>
+
+                        <!-- Azimuth -->
+                        <div class="mb-2">
+                            <div class="flex justify-between items-baseline mb-0.5">
+                                <span class="control-label">AZIMUTH</span>
+                                <span id="a{{ loop.index }}" class="value-display font-mono text-amber-300 text-sm">{{ band.default_az }}°</span>
+                            </div>
+                            <input type="range" min="-180" max="180" step="1" value="{{ band.default_az }}" id="az{{ loop.index }}"
+                                   class="modern-slider w-full accent-amber-400"
+                                   oninput="send('az', {{ loop.index }}, this.value); show(this, 'a{{ loop.index }}')">
+                        </div>
+
+                        <!-- Distance -->
+                        <div class="mb-2">
+                            <div class="flex justify-between items-baseline mb-0.5">
+                                <span class="control-label">DISTANCE</span>
+                                <span id="d{{ loop.index }}" class="value-display font-mono text-emerald-300 text-sm">{{ band.default_dist }}</span>
+                            </div>
+                            <input type="range" min="0" max="10" step="0.1" value="{{ band.default_dist }}" id="dist{{ loop.index }}"
+                                   class="modern-slider w-full accent-emerald-400"
+                                   oninput="send('dist', {{ loop.index }}, this.value); show(this, 'd{{ loop.index }}')">
+                        </div>
+
+                        {% if band.default_q is defined %}
+                        <!-- Q -->
+                        <div>
+                            <div class="flex justify-between items-baseline mb-0.5">
+                                <span class="control-label">Q (resonance)</span>
+                                <span id="q{{ loop.index }}" class="value-display font-mono text-violet-300 text-sm">{{ band.default_q }}</span>
+                            </div>
+                            <input type="range" min="0.01" max="2.0" step="0.001" value="{{ band.default_q }}" id="q{{ loop.index }}"
+                                   class="modern-slider w-full accent-violet-400"
+                                   oninput="send('q', {{ loop.index }}, this.value); show(this, 'q{{ loop.index }}')">
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <!-- SENSOR INTERPRETER -->
+            <div class="xl:col-span-5">
+                <div class="flex items-center justify-between mb-2 px-1">
+                    <div class="flex items-center gap-x-2">
+                        <span class="font-semibold tracking-tight text-lg">Sensor Interpreter</span>
+                        <span class="px-2 py-0.5 text-[10px] bg-teal-900/50 text-teal-400 rounded-full text-center font-medium">Phone → Parameters</span>
+                    </div>
+                </div>
+
+                <div class="section rounded-3xl p-4 border border-slate-800">
+                    
+                    <!-- Orientation Visual -->
+                    <div class="mb-4">
+                        <div class="flex justify-between items-center mb-1.5 px-1">
+                            <span class="control-label">ORIENTATION VISUAL</span>
+                            <span id="orientation-label" class="text-[10px] text-slate-500 font-mono">—</span>
+                        </div>
+                        <canvas id="orientation-canvas" width="300" height="140" class="canvas-orientation w-full"></canvas>
+                    </div>
+
+                    <!-- Sensor Cards -->
+                    <div class="grid grid-cols-2 gap-3 mb-4" id="sensor-cards">
+                        <!-- Populated by JS: Yaw, Pitch, Roll, Accel -->
+                    </div>
+
+                    <!-- Mapping Editor -->
+                    <div class="mb-3">
+                        <div class="flex items-center justify-between mb-1.5 px-0.5">
+                            <span class="control-label">MAPPING EDITOR</span>
+                            <button onclick="resetSensorMappingToDefault(); buildSensorMappingUI(); updateDebugViz();"
+                                    class="text-[10px] px-2 py-0.5 rounded-lg border border-slate-700 hover:bg-slate-900 text-slate-400">Reset defaults</button>
+                        </div>
+                        
+                        <div id="sensor-mapping-rows" class="space-y-2 text-sm">
+                            <!-- JS populated beautiful rows -->
+                        </div>
+                    </div>
+
+                    <!-- Active Drivers -->
+                    <div>
+                        <div class="flex items-center justify-between mb-1.5 px-0.5">
+                            <span class="control-label">CURRENTLY DRIVING</span>
+                            <button onclick="applyCurrentMappingAndSend()" 
+                                    class="text-emerald-400 hover:text-emerald-300 text-xs flex items-center gap-1 px-2 py-0.5 rounded-lg border border-emerald-900 hover:bg-emerald-950">
+                                <i class="fa-solid fa-paper-plane text-xs"></i>
+                                <span class="font-medium text-[10px]">FORCE SEND</span>
+                            </button>
+                        </div>
+                        <div id="sensor-driving" 
+                             class="bg-[#0a0c12] border border-slate-800 rounded-2xl p-3 min-h-[68px] text-xs font-mono leading-snug text-emerald-300/90 whitespace-pre-line">
+                            (enable LIVE and move your phone)
+                        </div>
+                    </div>
+
+                    <div class="flex flex-wrap gap-2 mt-3 text-xs">
+                        <button onclick="saveSensorConfigToPreset()" 
+                                class="flex-1 sm:flex-none px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-2xl text-emerald-400 text-xs font-medium flex items-center justify-center gap-2">
+                            <i class="fa-solid fa-save"></i> <span>Save mapping to preset</span>
+                        </button>
+                        <button onclick="exportSensorConfig()" 
+                                class="flex-1 sm:flex-none px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-2xl text-xs font-medium flex items-center justify-center gap-2">
+                            <i class="fa-solid fa-download"></i> <span>Export JSON</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Global Mix & Master -->
+        <div class="mt-5 section rounded-3xl p-4 border border-slate-800">
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-5">
+                <!-- Mix -->
+                <div>
+                    <div class="flex justify-between items-center mb-1">
+                        <span class="font-semibold text-sm tracking-tight">MIX (wet)</span>
+                        <span id="vmix" class="font-mono text-cyan-300">0.85</span>
+                    </div>
+                    <input type="range" min="0" max="1" step="0.01" value="0.85" id="mix"
+                           class="modern-slider w-full accent-cyan-400"
+                           oninput="sendGlobal('mix', this.value); show(this, 'vmix')">
+                </div>
+                
+                <!-- Master -->
+                <div>
+                    <div class="flex justify-between items-center mb-1">
+                        <span class="font-semibold text-sm tracking-tight">MASTER</span>
+                        <span id="vmaster" class="font-mono text-cyan-300">0.90</span>
+                    </div>
+                    <input type="range" min="0" max="2" step="0.01" value="0.9" id="master"
+                           class="modern-slider w-full accent-cyan-400"
+                           oninput="sendGlobal('master', this.value); show(this, 'vmaster')">
+                </div>
+
+                <!-- Record -->
+                <div>
+                    <div class="flex justify-between items-center mb-1">
+                        <span class="font-semibold text-sm tracking-tight text-red-400">RECORD</span>
+                    </div>
+                    <button id="rec-btn" onclick="toggleRecord(this)"
+                            class="w-full py-2 rounded-2xl border border-red-500/40 text-red-400 hover:bg-red-950 font-medium text-sm flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-circle"></i>
+                        <span>START</span>
+                    </button>
+                </div>
+
+                <!-- Reset All -->
+                <div>
+                    <div class="flex justify-between items-center mb-1">
+                        <span class="font-semibold text-sm tracking-tight">GLOBAL</span>
+                    </div>
+                    <button onclick="resetAll()"
+                            class="w-full py-2 rounded-2xl border border-orange-500/30 text-orange-400 hover:bg-orange-950 font-medium text-sm flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-undo"></i>
+                        <span>RESET ALL</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="text-center mt-6 text-[10px] text-slate-600">
+            Phone sensors → live modulation • Works on iOS Safari &amp; Android Chrome • Send feedback to the Beacon
+        </div>
+
     </div>
-    
+
     <script>
+        // Tailwind script
+        function initTailwind() {
+            document.documentElement.style.setProperty('--accent', '#22d3ee');
+        }
+
+        // Keep all the original logic + enhance for new UI
         const defaults = {
             gains: [1.2, 1.0, 1.0, 1.0, 1.0, 1.3, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
             azs:   [180, 135, -90, -45, 45, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -391,6 +511,7 @@ HTML = """
                 body: JSON.stringify({address: '/beacon/' + param + '/' + band, value: parseFloat(value)})
             });
         }
+        
         function sendGlobal(param, value) {
             fetch('/control', {
                 method: 'POST',
@@ -398,81 +519,102 @@ HTML = """
                 body: JSON.stringify({address: '/beacon/' + param, value: parseFloat(value)})
             });
         }
+        
         function show(el, id) {
-            const unit = id.startsWith('a') ? '&deg;' : '';
-            document.getElementById(id).textContent = el.value + unit;
+            const unit = id.startsWith('a') ? '°' : '';
+            const target = document.getElementById(id);
+            if (target) target.textContent = parseFloat(el.value).toFixed( id.startsWith('q') ? 3 : 2 ) + unit;
         }
+        
         function updateSpec(band, value) {
             const bar = document.getElementById('spec' + band);
-            if (bar) bar.style.height = (value / 3.0 * 100) + '%';
+            if (bar) bar.style.height = (parseFloat(value) / 3.0 * 100) + '%';
         }
+
         let recording = false;
         function toggleRecord(btn) {
             recording = !recording;
+            const span = btn.querySelector('span') || btn;
+            
             if (recording) {
                 const label = 'session_' + new Date().toISOString().slice(0,19).replace(/[:T]/g,'-');
                 sendGlobal('record/start', label);
-                btn.textContent = 'STOP';
-                btn.classList.add('active');
-                btn.style.background = '#e74c3c';
-                btn.style.color = '#fff';
-                btn.style.borderColor = '#e74c3c';
-                document.getElementById('vrec').textContent = 'recording...';
+                btn.classList.add('!bg-red-600', '!border-red-600', '!text-white');
+                span.textContent = 'STOP';
             } else {
                 sendGlobal('record/stop', 0);
-                btn.textContent = 'RECORD';
-                btn.classList.remove('active');
-                btn.style.background = 'transparent';
-                btn.style.color = '#e74c3c';
-                btn.style.borderColor = '#e74c3c';
-                document.getElementById('vrec').textContent = 'saved';
+                btn.classList.remove('!bg-red-600', '!border-red-600', '!text-white');
+                span.textContent = 'START';
             }
         }
+
         const soloState = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        
         function toggleSolo(band, btn) {
             soloState[band - 1] = soloState[band - 1] ? 0 : 1;
             const isActive = soloState[band - 1];
-            btn.classList.toggle('active', isActive);
+            btn.classList.toggle('!bg-white', isActive);
+            btn.classList.toggle('!text-black', isActive);
+            btn.classList.toggle('!border-white', isActive);
+            
             send('solo', band, isActive ? 1 : 0);
+            
             const anySolo = soloState.some(s => s === 1);
             for (let i = 1; i <= 13; i++) {
                 const card = document.getElementById('band' + i);
-                if (anySolo && !soloState[i - 1]) {
-                    card.classList.add('muted');
-                } else {
-                    card.classList.remove('muted');
+                if (card) {
+                    if (anySolo && !soloState[i - 1]) {
+                        card.style.opacity = '0.35';
+                    } else {
+                        card.style.opacity = '1';
+                    }
                 }
             }
         }
 
         function resetAll() {
-            // Send reset to scsynth
             sendGlobal('reset', 1);
-            // Reset UI
+            
             for (let i = 1; i <= 13; i++) {
                 const g = document.getElementById('gain' + i);
                 const a = document.getElementById('az' + i);
                 const d = document.getElementById('dist' + i);
                 const q = document.getElementById('q' + i);
                 const s = document.getElementById('s' + i);
+                
                 if (g) { g.value = defaults.gains[i-1]; show(g, 'g'+i); updateSpec(i, g.value); }
                 if (a) { a.value = defaults.azs[i-1]; show(a, 'a'+i); }
                 if (d) { d.value = defaults.dists[i-1]; show(d, 'd'+i); }
-                if (q) { q.value = defaults.qs[i-1]; show(q, 'q'+i); }
+                if (q && defaults.qs[i-1]) { q.value = defaults.qs[i-1]; show(q, 'q'+i); }
                 if (s && soloState[i-1]) { toggleSolo(i, s); }
             }
+            
             const mix = document.getElementById('mix');
             const master = document.getElementById('master');
-            mix.value = defaults.mix; show(mix, 'vmix');
-            master.value = defaults.master; show(master, 'vmaster');
-            document.getElementById('vreset').textContent = 'reset done';
-            setTimeout(() => document.getElementById('vreset').textContent = 'defaults', 1500);
+            if (mix) { mix.value = defaults.mix; show(mix, 'vmix'); }
+            if (master) { master.value = defaults.master; show(master, 'vmaster'); }
+            
+            const status = document.getElementById('config-status');
+            if (status) {
+                status.textContent = 'Reset to defaults';
+                setTimeout(() => status.textContent = 'Presets ready', 1400);
+            }
         }
 
         function gatherState() {
-            const state = { bands: [], mix: parseFloat(document.getElementById('mix').value), master: parseFloat(document.getElementById('master').value) };
+            const state = { 
+                bands: [], 
+                mix: parseFloat(document.getElementById('mix').value), 
+                master: parseFloat(document.getElementById('master').value),
+                sensor_mappings: getCurrentSensorMappings()
+            };
             for (let i = 1; i <= 13; i++) {
-                const b = { gain: parseFloat(document.getElementById('gain'+i).value), az: parseFloat(document.getElementById('az'+i).value), dist: parseFloat(document.getElementById('dist'+i).value), solo: soloState[i-1] };
+                const b = { 
+                    gain: parseFloat(document.getElementById('gain'+i).value), 
+                    az: parseFloat(document.getElementById('az'+i).value), 
+                    dist: parseFloat(document.getElementById('dist'+i).value), 
+                    solo: soloState[i-1] 
+                };
                 const q = document.getElementById('q'+i);
                 if (q) b.q = parseFloat(q.value);
                 state.bands.push(b);
@@ -488,34 +630,527 @@ HTML = """
                 const d = document.getElementById('dist'+i);
                 const q = document.getElementById('q'+i);
                 const s = document.getElementById('s'+i);
+                
                 if (g) { g.value = b.gain; send('gain', i, b.gain); show(g, 'g'+i); updateSpec(i, b.gain); }
                 if (a) { a.value = b.az; send('az', i, b.az); show(a, 'a'+i); }
                 if (d) { d.value = b.dist; send('dist', i, b.dist); show(d, 'd'+i); }
                 if (q && b.q !== undefined) { q.value = b.q; send('q', i, b.q); show(q, 'q'+i); }
                 if (s && b.solo !== soloState[i-1]) { toggleSolo(i, s); }
             }
+            
             const mix = document.getElementById('mix');
             const master = document.getElementById('master');
-            mix.value = state.mix; sendGlobal('mix', state.mix); show(mix, 'vmix');
-            master.value = state.master; sendGlobal('master', state.master); show(master, 'vmaster');
+            if (mix) { mix.value = state.mix; sendGlobal('mix', state.mix); show(mix, 'vmix'); }
+            if (master) { master.value = state.master; sendGlobal('master', state.master); show(master, 'vmaster'); }
+
+            if (state.sensor_mappings) {
+                const ta = document.getElementById('sensor-mapping-json');
+                if (ta) {
+                    ta.value = JSON.stringify(state.sensor_mappings, null, 2);
+                }
+                buildSensorMappingUI();
+            }
         }
 
-        function saveConfig() {
-            const name = document.getElementById('save-name').value.trim();
-            if (!name) { setStatus('Enter a name'); return; }
-            fetch('/save_config', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({name: name, state: gatherState()})
-            }).then(r => r.json()).then(data => {
-                setStatus(data.ok ? 'Saved: ' + name : 'Error');
-                if (data.ok) loadConfigList();
+        // === Sensor Logic (kept and enhanced) ===
+        let currentSensors = {};
+        let liveSensorsActive = false;
+        let sensorInfluence = 0.65;
+        let lastSensorSend = 0;
+        let orientationCanvasCtx = null;
+        let sensorVizInterval = null;  // single shared interval, cleared on STOP/leave
+
+        function updateSensorInfluence(val) {
+            sensorInfluence = parseFloat(val);
+            const el = document.getElementById('influence-val');
+            if (el) el.textContent = parseFloat(val).toFixed(2);
+        }
+
+        function requestSensorPermissions() {
+            const statusEl = document.getElementById('sensor-status');
+            if (statusEl) statusEl.innerHTML = '<i class="fa-solid fa-circle text-amber-400 text-[8px]"></i> <span>Requesting...</span>';
+            
+            let promises = [];
+            if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+                promises.push(DeviceOrientationEvent.requestPermission());
+            }
+            if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+                promises.push(DeviceMotionEvent.requestPermission());
+            }
+            
+            Promise.all(promises).then(() => {
+                if (statusEl) statusEl.innerHTML = '<i class="fa-solid fa-circle text-emerald-400 text-[8px]"></i> <span>Permissions OK</span>';
+                startSensorListeners();
+            }).catch(err => {
+                if (statusEl) statusEl.innerHTML = '<i class="fa-solid fa-circle text-red-400 text-[8px]"></i> <span>Permission denied</span>';
             });
         }
 
+        function startSensorListeners() {
+            window.addEventListener('deviceorientation', (event) => {
+                currentSensors.yaw = event.alpha || 0;
+                currentSensors.pitch = event.beta || 0;
+                currentSensors.roll = event.gamma || 0;
+                updateSensorDisplay();
+                drawOrientationCanvas();
+                if (liveSensorsActive) throttledSensorSend();
+            }, true);
+
+            window.addEventListener('devicemotion', (event) => {
+                const acc = event.acceleration || event.accelerationIncludingGravity || {};
+                const ax = acc.x || 0, ay = acc.y || 0, az = acc.z || 0;
+                currentSensors.accel = Math.sqrt(ax*ax + ay*ay + az*az);
+                
+                const rot = event.rotationRate || {};
+                const rx = rot.alpha || 0, ry = rot.beta || 0, rz = rot.gamma || 0;
+                currentSensors.rotrate = Math.sqrt(rx*rx + ry*ry + rz*rz);
+                
+                updateSensorDisplay();
+                if (liveSensorsActive) throttledSensorSend();
+            }, true);
+            
+            const status = document.getElementById('sensor-status');
+            if (status) status.innerHTML = '<i class="fa-solid fa-circle text-emerald-400 text-[8px]"></i> <span>Sensors active</span>';
+        }
+
+        function updateSensorDisplay() {
+            // Update the sensor cards (populated by buildSensorCards)
+            const cards = document.getElementById('sensor-cards');
+            if (!cards) return;
+
+            const sensors = [
+                {key: 'yaw', label: 'YAW', unit: '°', color: '#f59e0b'},
+                {key: 'pitch', label: 'PITCH', unit: '°', color: '#10b981'},
+                {key: 'roll', label: 'ROLL', unit: '°', color: '#8b5cf6'},
+                {key: 'accel', label: 'ACCEL', unit: 'm/s²', color: '#ef4444'}
+            ];
+
+            sensors.forEach(s => {
+                const valEl = document.getElementById('sensor-val-' + s.key);
+                const barEl = document.getElementById('sensor-bar-' + s.key);
+                if (valEl) {
+                    let v = currentSensors[s.key] || 0;
+                    if (s.key === 'yaw') v = ((v + 180) % 360) - 180;
+                    valEl.textContent = v.toFixed(1) + s.unit;
+                }
+                if (barEl) {
+                    let pct = 50;
+                    let v = currentSensors[s.key] || 0;
+                    if (s.key === 'yaw') pct = ((v + 180) % 360) / 360 * 100;
+                    else if (s.key === 'pitch') pct = Math.min(100, Math.max(0, (v + 90) / 180 * 100));
+                    else if (s.key === 'roll') pct = Math.min(100, Math.max(0, (v + 90) / 180 * 100));
+                    else if (s.key === 'accel') pct = Math.min(100, v * 15);
+                    barEl.style.width = pct + '%';
+                }
+            });
+        }
+
+        function drawOrientationCanvas() {
+            const canvas = document.getElementById('orientation-canvas');
+            if (!canvas || !orientationCanvasCtx) return;
+            const ctx = orientationCanvasCtx;
+            const w = canvas.width;
+            const h = canvas.height;
+            
+            ctx.clearRect(0, 0, w, h);
+            
+            const yaw = currentSensors.yaw || 0;
+            const pitch = currentSensors.pitch || 0;
+            const roll = currentSensors.roll || 0;
+            
+            // Background circle
+            ctx.strokeStyle = '#1f2937';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(w/2, h/2 + 10, 52, 0, Math.PI * 2);
+            ctx.stroke();
+            
+            // Horizon line (pitch influence)
+            ctx.strokeStyle = '#475569';
+            ctx.lineWidth = 1.5;
+            const horizonY = h/2 + 10 + (pitch * 0.35);
+            ctx.beginPath();
+            ctx.moveTo(w/2 - 55, horizonY);
+            ctx.lineTo(w/2 + 55, horizonY);
+            ctx.stroke();
+            
+            // Yaw arrow
+            ctx.save();
+            ctx.translate(w/2, h/2 + 10);
+            ctx.rotate((yaw - 180) * Math.PI / 180);
+            
+            ctx.strokeStyle = '#f59e0b';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.moveTo(0, -28);
+            ctx.lineTo(0, 28);
+            ctx.stroke();
+            
+            // Arrow head
+            ctx.fillStyle = '#f59e0b';
+            ctx.beginPath();
+            ctx.moveTo(0, -28);
+            ctx.lineTo(-8, -18);
+            ctx.lineTo(8, -18);
+            ctx.fill();
+            ctx.restore();
+            
+            // Roll indicator
+            ctx.strokeStyle = '#8b5cf6';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(w/2 + 70, h/2 + 10, 18, 0, Math.PI * 2);
+            ctx.stroke();
+            
+            ctx.fillStyle = '#8b5cf6';
+            const rollRad = (roll * 0.01745);
+            ctx.beginPath();
+            ctx.arc(w/2 + 70 + Math.cos(rollRad) * 18, h/2 + 10 + Math.sin(rollRad) * 18, 4, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Label
+            const label = document.getElementById('orientation-label');
+            if (label) label.textContent = `Y:${yaw.toFixed(0)}° P:${pitch.toFixed(0)}° R:${roll.toFixed(0)}°`;
+        }
+
+        function parseBands(bandsSpec) {
+            if (!bandsSpec) return [];
+            if (typeof bandsSpec === 'string') {
+                if (bandsSpec === 'all') return Array.from({length:13}, (_,i)=>i+1);
+                if (bandsSpec === 'low') return [1,2,3,4,5,6];
+                if (bandsSpec === 'high') return [7,8,9,10,11,12,13];
+                if (bandsSpec.includes('-')) {
+                    const [s,e] = bandsSpec.split('-').map(Number);
+                    return Array.from({length: e-s+1}, (_,i)=>s+i);
+                }
+                return bandsSpec.split(',').map(s => parseInt(s.trim())).filter(Boolean);
+            }
+            return Array.isArray(bandsSpec) ? bandsSpec : [];
+        }
+
+        function throttledSensorSend() {
+            const now = Date.now();
+            if (now - lastSensorSend < 55) return;
+            lastSensorSend = now;
+            computeAndSendSensorUpdates();
+        }
+
+        function computeAndSendSensorUpdates() {
+            if (!liveSensorsActive || sensorInfluence <= 0) return;
+            const mappings = getCurrentSensorMappings();
+            const influence = sensorInfluence;
+
+            Object.entries(mappings).forEach(([sensorKey, map]) => {
+                if (!map.enabled) return;
+                
+                let sensorVal = 0;
+                if (sensorKey === 'yaw') sensorVal = ((currentSensors.yaw || 0) + 180) % 360 - 180;
+                else if (sensorKey === 'pitch') sensorVal = currentSensors.pitch || 0;
+                else if (sensorKey === 'roll') sensorVal = currentSensors.roll || 0;
+                else if (sensorKey === 'accel') sensorVal = Math.max(0, (currentSensors.accel || 0) - 1) * 0.5;
+                else if (sensorKey === 'rotrate') sensorVal = currentSensors.rotrate || 0;
+
+                const targetParam = map.param;
+                const bands = parseBands(map.bands);
+                const scale = (map.scale || 1) * influence;
+                const offset = map.offset || 0;
+
+                let computed = sensorVal * scale + offset;
+
+                if (targetParam === 'az') computed = Math.max(-180, Math.min(180, computed));
+                if (targetParam === 'dist') computed = Math.max(0.5, Math.min(10, computed));
+                if (targetParam === 'gain') computed = Math.max(0, Math.min(3, computed));
+                if (targetParam === 'q') computed = Math.max(0.1, Math.min(2, computed));
+
+                bands.forEach(bandIdx => {
+                    let addr = `/beacon/${targetParam}`;
+                    if (targetParam !== 'mix' && targetParam !== 'master') addr += '/' + bandIdx;
+                    fetch('/control', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({address: addr, value: parseFloat(computed)})
+                    }).catch(() => {});
+                });
+            });
+        }
+
+        // === Beautiful new sensor mapping UI ===
+        function buildSensorMappingUI() {
+            const container = document.getElementById('sensor-mapping-rows');
+            if (!container) return;
+            
+            const mappings = getCurrentSensorMappings();
+            container.innerHTML = '';
+
+            const sensors = ['yaw', 'pitch', 'roll', 'accel'];
+            const paramOptions = ['az', 'dist', 'gain', 'q', 'mix', 'master'];
+            const bandOptions = ['1-6', 'low', '7-12', 'high', 'all'];
+
+            sensors.forEach(sensor => {
+                const map = mappings[sensor] || {param: 'az', bands: '1-6', scale: 1, offset: 0, enabled: true};
+                
+                const row = document.createElement('div');
+                row.className = 'sensor-card rounded-2xl p-3 flex flex-col gap-2';
+                
+                row.innerHTML = `
+                    <div class="flex items-center justify-between">
+                        <div class="font-semibold text-sm flex items-center gap-2" style="color: ${sensor === 'yaw' ? '#f59e0b' : sensor === 'pitch' ? '#10b981' : sensor === 'roll' ? '#8b5cf6' : '#ef4444'}">
+                            <i class="fa-solid ${sensor === 'yaw' ? 'fa-compass' : sensor === 'pitch' ? 'fa-arrow-up' : sensor === 'roll' ? 'fa-sync' : 'fa-bolt'}"></i>
+                            <span class="uppercase tracking-wider">${sensor}</span>
+                        </div>
+                        <label class="flex items-center gap-1 text-xs cursor-pointer">
+                            <input type="checkbox" data-sensor="${sensor}" data-field="enabled" ${map.enabled ? 'checked' : ''} class="accent-cyan-400">
+                            <span class="text-emerald-400 text-xs">ON</span>
+                        </label>
+                    </div>
+                    
+                    <div class="grid grid-cols-5 gap-2">
+                        <div class="col-span-2">
+                            <div class="text-[10px] text-slate-400 mb-0.5">PARAM</div>
+                            <select data-sensor="${sensor}" data-field="param" class="bg-slate-950 border border-slate-700 text-xs rounded-xl px-2 py-1 w-full">
+                                ${paramOptions.map(p => `<option value="${p}" ${map.param===p?'selected':''}>${p}</option>`).join('')}
+                            </select>
+                        </div>
+                        <div class="col-span-2">
+                            <div class="text-[10px] text-slate-400 mb-0.5">BANDS</div>
+                            <select data-sensor="${sensor}" data-field="bands" class="bg-slate-950 border border-slate-700 text-xs rounded-xl px-2 py-1 w-full">
+                                ${bandOptions.map(b => `<option value="${b}" ${map.bands===b?'selected':''}>${b}</option>`).join('')}
+                            </select>
+                        </div>
+                        <div>
+                            <div class="text-[10px] text-slate-400 mb-0.5">SCALE</div>
+                            <input type="number" step="0.1" data-sensor="${sensor}" data-field="scale" value="${map.scale}" 
+                                   class="bg-slate-950 border border-slate-700 text-xs rounded-xl px-2 py-1 w-full font-mono">
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-5 gap-2">
+                        <div class="col-span-2">
+                            <div class="text-[10px] text-slate-400 mb-0.5">OFFSET</div>
+                            <input type="number" step="0.1" data-sensor="${sensor}" data-field="offset" value="${map.offset}" 
+                                   class="bg-slate-950 border border-slate-700 text-xs rounded-xl px-2 py-1 w-full font-mono">
+                        </div>
+                    </div>
+                `;
+                
+                container.appendChild(row);
+                
+                // listeners
+                row.querySelectorAll('select, input').forEach(el => {
+                    const handler = () => {
+                        syncMappingFromUI();
+                        updateDebugViz();
+                    };
+                    el.addEventListener('change', handler);
+                    el.addEventListener('input', handler);
+                });
+            });
+        }
+
+        function syncMappingFromUI() {
+            const container = document.getElementById('sensor-mapping-rows');
+            if (!container) return;
+            
+            const newMappings = {};
+            container.querySelectorAll('.sensor-card').forEach(card => {
+                const sensor = card.querySelector('select[data-field="param"]').getAttribute('data-sensor');
+                newMappings[sensor] = {
+                    param: card.querySelector('select[data-field="param"]').value,
+                    bands: card.querySelector('select[data-field="bands"]').value,
+                    scale: parseFloat(card.querySelector('input[data-field="scale"]').value) || 1,
+                    offset: parseFloat(card.querySelector('input[data-field="offset"]').value) || 0,
+                    enabled: card.querySelector('input[data-field="enabled"]').checked
+                };
+            });
+            
+            const ta = document.getElementById('sensor-mapping-json');
+            if (ta) ta.value = JSON.stringify(newMappings, null, 2);
+        }
+
+        function getCurrentSensorMappings() {
+            const ta = document.getElementById('sensor-mapping-json');
+            if (!ta || !ta.value.trim()) return getDefaultSensorMappings();
+            try {
+                return JSON.parse(ta.value);
+            } catch (e) {
+                return getDefaultSensorMappings();
+            }
+        }
+
+        function getDefaultSensorMappings() {
+            return {
+                "yaw": { "param": "az", "bands": "1-6", "scale": 1.0, "offset": 0, "enabled": true },
+                "pitch": { "param": "dist", "bands": "1-6", "scale": 0.025, "offset": 2.0, "enabled": true },
+                "roll": { "param": "q", "bands": "7-12", "scale": 0.6, "offset": 0, "enabled": true },
+                "accel": { "param": "gain", "bands": "1-6", "scale": 0.35, "offset": 0, "enabled": true }
+            };
+        }
+
+        function updateDebugViz() {
+            const drivingEl = document.getElementById('sensor-driving');
+            if (!drivingEl || !liveSensorsActive) return;
+
+            const mappings = getCurrentSensorMappings();
+            const influence = sensorInfluence;
+            let lines = [];
+
+            Object.entries(mappings).forEach(([sensorKey, map]) => {
+                if (!map.enabled) return;
+                
+                let sensorVal = currentSensors[sensorKey] || 0;
+                if (sensorKey === 'yaw') sensorVal = ((sensorVal + 180) % 360) - 180;
+                if (sensorKey === 'accel') sensorVal = Math.max(0, sensorVal - 1) * 0.5;
+
+                const computed = sensorVal * (map.scale || 1) * influence + (map.offset || 0);
+                const addr = `/beacon/${map.param}` + (map.param === 'mix' || map.param === 'master' ? '' : ' (' + map.bands + ')');
+                
+                lines.push(`${sensorKey.toUpperCase()} → ${map.param} ${map.bands}: ${computed.toFixed(2)}`);
+            });
+
+            drivingEl.textContent = lines.length ? lines.join('
+') : '(no active mappings)';
+        }
+
+        function buildSensorCards() {
+            const container = document.getElementById('sensor-cards');
+            if (!container) return;
+            
+            const sensors = [
+                {key:'yaw', label:'YAW', unit:'°', color:'#f59e0b', icon:'fa-compass'},
+                {key:'pitch', label:'PITCH', unit:'°', color:'#10b981', icon:'fa-arrow-up'},
+                {key:'roll', label:'ROLL', unit:'°', color:'#8b5cf6', icon:'fa-sync-alt'},
+                {key:'accel', label:'ACCEL', unit:'', color:'#ef4444', icon:'fa-bolt'}
+            ];
+            
+            container.innerHTML = '';
+            
+            sensors.forEach(s => {
+                const div = document.createElement('div');
+                div.className = `sensor-card rounded-2xl p-3 border border-slate-700`;
+                div.innerHTML = `
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <div class="flex items-center gap-1.5">
+                                <i class="fa-solid ${s.icon}" style="color:${s.color}"></i>
+                                <span class="text-xs font-bold tracking-widest" style="color:${s.color}">${s.label}</span>
+                            </div>
+                            <div id="sensor-val-${s.key}" class="big-value font-mono mt-0.5" style="color:${s.color}">—</div>
+                        </div>
+                        <div class="text-right">
+                            <div class="w-14 h-1.5 bg-slate-800 rounded mt-1.5 overflow-hidden">
+                                <div id="sensor-bar-${s.key}" class="h-1.5 transition-all" style="width:50%; background:${s.color}"></div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        function toggleLiveSensorsUI() {
+            liveSensorsActive = !liveSensorsActive;
+            const btn = document.getElementById('live-btn');
+            const text = document.getElementById('live-text');
+            
+            if (liveSensorsActive) {
+                btn.classList.remove('bg-emerald-500/10', 'border-emerald-500/30', 'text-emerald-400');
+                btn.classList.add('bg-emerald-500', 'border-emerald-500', 'text-white');
+                text.textContent = 'STOP';
+
+                const status = document.getElementById('sensor-status');
+                if (status) status.innerHTML = '<i class="fa-solid fa-circle text-emerald-400 text-[8px]"></i> <span>LIVE — move phone</span>';
+
+                if (!currentSensors.yaw) startSensorListeners();
+
+                // Viz loop: single shared interval, no leak on toggle
+                if (sensorVizInterval) clearInterval(sensorVizInterval);
+                sensorVizInterval = setInterval(() => {
+                    if (!liveSensorsActive) return;
+                    updateDebugViz();
+                    drawOrientationCanvas();
+                }, 160);
+            } else {
+                btn.classList.add('bg-emerald-500/10', 'border-emerald-500/30', 'text-emerald-400');
+                btn.classList.remove('bg-emerald-500', 'border-emerald-500', 'text-white');
+                text.textContent = 'LIVE';
+                
+                const status = document.getElementById('sensor-status');
+                if (status) status.innerHTML = '<i class="fa-solid fa-circle text-slate-400 text-[8px]"></i> <span>Live paused</span>';
+            }
+        }
+
+        function getSensorMappingJSONEl() {
+            let ta = document.getElementById('sensor-mapping-json');
+            if (!ta) {
+                ta = document.createElement('textarea');
+                ta.id = 'sensor-mapping-json';
+                ta.style.display = 'none';
+                document.body.appendChild(ta);
+            }
+            return ta;
+        }
+
+        function initSensorUI() {
+            // Create hidden JSON textarea for compatibility
+            const ta = getSensorMappingJSONEl();
+            ta.value = JSON.stringify(getDefaultSensorMappings(), null, 2);
+            
+            // Build beautiful UI components
+            buildSensorCards();
+            buildSensorMappingUI();
+            
+            // Orientation canvas
+            const canvas = document.getElementById('orientation-canvas');
+            if (canvas) {
+                orientationCanvasCtx = canvas.getContext('2d');
+                // initial draw
+                setTimeout(drawOrientationCanvas, 300);
+            }
+            
+            // Influence init
+            const inf = document.getElementById('sensor-influence');
+            if (inf) {
+                inf.value = sensorInfluence;
+                const valEl = document.getElementById('influence-val');
+                if (valEl) valEl.textContent = sensorInfluence.toFixed(2);
+            }
+
+            // Viz loop is created on first LIVE press (toggleLiveSensorsUI)
+            // — not here, to avoid running before the user opts in.
+        }
+
+        function resetSensorMappingToDefault() {
+            const ta = getSensorMappingJSONEl();
+            ta.value = JSON.stringify(getDefaultSensorMappings(), null, 2);
+        }
+
+        function saveSensorConfigToPreset() {
+            const nameInput = document.getElementById('save-name');
+            if (nameInput && !nameInput.value.trim()) {
+                nameInput.value = 'sensor-' + Date.now().toString(36);
+            }
+            saveConfig();
+        }
+
+        function exportSensorConfig() {
+            const ta = getSensorMappingJSONEl();
+            const data = ta.value || JSON.stringify(getCurrentSensorMappings(), null, 2);
+            const blob = new Blob([data], {type: 'application/json'});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'beacon-sensor-mapping.json';
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        // Load/Save config (kept intact)
         function loadConfig() {
             const name = document.getElementById('load-select').value;
-            if (!name) { setStatus('Select a preset'); return; }
+            if (!name) { 
+                const status = document.getElementById('config-status');
+                if (status) status.textContent = 'Select a preset';
+                return; 
+            }
             fetch('/load_config', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
@@ -523,21 +1158,22 @@ HTML = """
             }).then(r => r.json()).then(data => {
                 if (data.ok && data.state) {
                     applyState(data.state);
-                    setStatus('Loaded: ' + name);
+                    const status = document.getElementById('config-status');
+                    if (status) status.textContent = 'Loaded: ' + name;
                 } else {
-                    setStatus('Error loading');
+                    const status = document.getElementById('config-status');
+                    if (status) status.textContent = 'Error loading';
                 }
+            }).catch(err => {
+                const status = document.getElementById('config-status');
+                if (status) status.textContent = 'Load error';
             });
-        }
-
-        function setStatus(msg) {
-            document.getElementById('config-status').textContent = msg;
         }
 
         function loadConfigList() {
             fetch('/list_configs').then(r => r.json()).then(data => {
                 const sel = document.getElementById('load-select');
-                sel.innerHTML = '<option value="">-- select --</option>';
+                sel.innerHTML = '<option value="">Load preset...</option>';
                 (data.configs || []).forEach(c => {
                     const opt = document.createElement('option');
                     opt.value = c;
@@ -547,11 +1183,47 @@ HTML = """
             });
         }
 
-        loadConfigList();
+        function saveConfig() {
+            const name = document.getElementById('save-name').value.trim() || 'untitled-' + Date.now();
+            const state = gatherState();
+            
+            fetch('/save_config', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({name: name, state: state})
+            }).then(r => r.json()).then(data => {
+                const status = document.getElementById('config-status');
+                if (status) status.textContent = data.ok ? 'Saved: ' + name : 'Save failed';
+                loadConfigList();
+                setTimeout(() => { if (status) status.textContent = 'Presets ready'; }, 1800);
+            });
+        }
+
+        // Initialize everything
+        function initializeUI() {
+            initTailwind();
+            
+            // Initial values for mix/master
+            const mix = document.getElementById('mix');
+            const master = document.getElementById('master');
+            if (mix) show(mix, 'vmix');
+            if (master) show(master, 'vmaster');
+            
+            // Boot sensor stuff
+            initSensorUI();
+            loadConfigList();
+            
+            // Default influence
+            updateSensorInfluence(sensorInfluence);
+            
+            // Keyboard hint
+            console.log('%c[Beacon] Excellent UI loaded. Sensors ready for phone.', 'color:#64748b');
+        }
+
+        window.onload = initializeUI;
     </script>
 </body>
-</html>
-"""
+</html>"""
 
 @app.route("/")
 def index():
@@ -561,11 +1233,18 @@ def index():
 def control():
     data = request.get_json()
     addr = data.get("address", "")
-    val = data.get("value", 0)
-    osc.send_message(addr, float(val))
+    raw = data.get("value", 0)
+    # OSC value must be numeric; coerce strings to float when possible.
+    # record/start|stop can carry a non-numeric label, so we forward a
+    # numeric 1/0 to sclang and use the address itself to convey intent.
+    try:
+        val = float(raw)
+    except (TypeError, ValueError):
+        val = 1.0 if isinstance(raw, str) and raw else 0.0
+    osc.send_message(addr, val)
     # Also forward to PD replica sclang (port 9001) if running
     try:
-        osc_pd.send_message(addr, float(val))
+        osc_pd.send_message(addr, val)
     except Exception:
         pass  # PD replica not running — silently ignore
     return jsonify({"ok": True})
