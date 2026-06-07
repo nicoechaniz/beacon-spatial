@@ -418,6 +418,11 @@ HTML = """<!DOCTYPE html>
                 </div>
 
                 <div class="flex flex-wrap gap-2 mt-3 text-xs">
+                    <button onclick="recenterSensors()"
+                            title="Set the current phone pose as the new 'center' / neutral position. Subsequent rotations are measured relative to this point."
+                            class="flex-1 sm:flex-none px-3 py-1.5 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 rounded-2xl text-cyan-400 text-xs font-medium flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-crosshairs"></i> <span>Recenter</span>
+                    </button>
                     <button onclick="saveSensorConfigToPreset()"
                             class="flex-1 sm:flex-none px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-2xl text-emerald-400 text-xs font-medium flex items-center justify-center gap-2">
                         <i class="fa-solid fa-save"></i> <span>Save mapping to preset</span>
@@ -717,6 +722,13 @@ HTML = """<!DOCTYPE html>
         // unwrapYaw() can subtract the wrap correctly.
         let yawUnwrapped = 0;
         let yawLastAlpha = null;
+        // Center / "calibration" offsets. When LIVE is pressed we
+        // capture the current pose as the new zero, so the user
+        // starts the session in whatever position feels natural to
+        // them. Updates to these are applied to every subsequent
+        // deviceorientation event in the listener.
+        let centerOffset = { yaw: 0, pitch: 0, roll: 0 };
+        let centerCalibrated = false;  // true after the first reading post-LIVE
         let liveSensorsActive = false;
         let sensorInfluence = 0.65;
         let lastSensorSend = 0;
@@ -771,15 +783,66 @@ HTML = """<!DOCTYPE html>
         }
         window.__unwrapYaw = unwrapYaw;
 
+        // Same idea for pitch (beta) — flips phone face-down makes beta
+        // jump 180 → -180. Unwrap to a continuous accumulating angle.
+        let pitchUnwrapped = 0;
+        let pitchLastBeta = null;
+        function unwrapPitch(rawBeta) {
+            if (rawBeta == null || isNaN(rawBeta)) return pitchUnwrapped;
+            if (pitchLastBeta === null) {
+                pitchLastBeta = rawBeta;
+                pitchUnwrapped = rawBeta;
+                return pitchUnwrapped;
+            }
+            let delta = rawBeta - pitchLastBeta;
+            if (delta > 180)  delta -= 360;
+            if (delta < -180) delta += 360;
+            pitchUnwrapped += delta;
+            pitchLastBeta = rawBeta;
+            return pitchUnwrapped;
+        }
+        window.__unwrapPitch = unwrapPitch;
+
+        // And roll (gamma). Less common to wrap, but the same logic
+        // applies if the user holds the phone at extreme angles.
+        let rollUnwrapped = 0;
+        let rollLastGamma = null;
+        function unwrapRoll(rawGamma) {
+            if (rawGamma == null || isNaN(rawGamma)) return rollUnwrapped;
+            if (rollLastGamma === null) {
+                rollLastGamma = rawGamma;
+                rollUnwrapped = rawGamma;
+                return rollUnwrapped;
+            }
+            let delta = rawGamma - rollLastGamma;
+            if (delta > 180)  delta -= 360;
+            if (delta < -180) delta += 360;
+            rollUnwrapped += delta;
+            rollLastGamma = rawGamma;
+            return rollUnwrapped;
+        }
+        window.__unwrapRoll = unwrapRoll;
+
         function startSensorListeners() {
             window.addEventListener('deviceorientation', (event) => {
                 const rawAlpha = event.alpha || 0;
-                // Store both: raw (so debug panel can see the wrap) and
-                // unwrapped (so the spatial mapping never jumps).
-                currentSensors.yaw = unwrapYaw(rawAlpha);
+                const rawBeta = event.beta || 0;
+                const rawGamma = event.gamma || 0;
+                // Store BOTH raw and offset-applied values:
+                //  - raw (yawRaw etc) so the debug panel can show the wrap
+                //  - centered values (yaw/pitch/roll) for the spatial
+                //    mapping so the user can pick any "neutral" pose.
+                // The unwrap* helpers make the centered value monotonic
+                // even when the user rotates past the 180/-180 boundary.
+                const unwrappedYaw   = unwrapYaw(rawAlpha);
+                const unwrappedPitch = unwrapPitch(rawBeta);
+                const unwrappedRoll  = unwrapRoll(rawGamma);
+                currentSensors.yaw   = unwrappedYaw   - centerOffset.yaw;
                 currentSensors.yawRaw = rawAlpha;
-                currentSensors.pitch = event.beta || 0;
-                currentSensors.roll = event.gamma || 0;
+                currentSensors.pitch = unwrappedPitch - centerOffset.pitch;
+                currentSensors.pitchRaw = rawBeta;
+                currentSensors.roll  = unwrappedRoll  - centerOffset.roll;
+                currentSensors.rollRaw = rawGamma;
                 updateSensorDisplay();
                 drawOrientationCanvas();
                 if (liveSensorsActive) throttledSensorSend();
@@ -866,10 +929,14 @@ HTML = """<!DOCTYPE html>
             ctx.arc(w/2, h/2 + 10, 52, 0, Math.PI * 2);
             ctx.stroke();
 
-            // Horizon line (pitch influence)
+            // Horizon line (pitch influence). Clamp pitch to the canvas
+            // bounds so unwrapped large values don't push it off-screen;
+            // the underlying currentSensors.pitch still flows unbounded
+            // to the spatial mapping.
             ctx.strokeStyle = '#475569';
             ctx.lineWidth = 1.5;
-            const horizonY = h/2 + 10 + (pitch * 0.35);
+            const pitchForCanvas = Math.max(-90, Math.min(90, pitch));
+            const horizonY = h/2 + 10 + (pitchForCanvas * 0.35);
             ctx.beginPath();
             ctx.moveTo(w/2 - 55, horizonY);
             ctx.lineTo(w/2 + 55, horizonY);
@@ -1183,16 +1250,38 @@ HTML = """<!DOCTYPE html>
             liveSensorsActive = !liveSensorsActive;
             const btn = document.getElementById('live-btn');
             const text = document.getElementById('live-text');
-            
+
             if (liveSensorsActive) {
                 btn.classList.remove('bg-emerald-500/10', 'border-emerald-500/30', 'text-emerald-400');
                 btn.classList.add('bg-emerald-500', 'border-emerald-500', 'text-white');
                 text.textContent = 'STOP';
 
                 const status = document.getElementById('sensor-status');
-                if (status) status.innerHTML = '<i class="fa-solid fa-circle text-emerald-400 text-[8px]"></i> <span>LIVE — move phone</span>';
+                if (status) status.innerHTML = '<i class="fa-solid fa-circle text-emerald-400 text-[8px]"></i> <span>LIVE — calibrating center…</span>';
 
-                if (!currentSensors.yaw) startSensorListeners();
+                if (!currentSensors.yaw && !currentSensors.pitch) startSensorListeners();
+
+                // Calibrate the center from the next deviceorientation
+                // event. We schedule a one-shot capture so we use a real
+                // sensor reading (not zeros from the cold start) as the
+                // user's "neutral" pose.
+                centerCalibrated = false;
+                const onFirstEvent = (ev) => {
+                    if (centerCalibrated) return;
+                    const a = (ev.alpha != null) ? ev.alpha : 0;
+                    const b = (ev.beta  != null) ? ev.beta  : 0;
+                    const g = (ev.gamma != null) ? ev.gamma : 0;
+                    // Reset unwrap state so the offset is applied against
+                    // a clean baseline.
+                    yawUnwrapped = a; yawLastAlpha = a;
+                    pitchUnwrapped = b; pitchLastBeta = b;
+                    rollUnwrapped = g; rollLastGamma = g;
+                    centerOffset = { yaw: a, pitch: b, roll: g };
+                    centerCalibrated = true;
+                    if (status) status.innerHTML = '<i class="fa-solid fa-circle text-emerald-400 text-[8px]"></i> <span>LIVE — centered. Move freely.</span>';
+                    window.removeEventListener('deviceorientation', onFirstEvent, true);
+                };
+                window.addEventListener('deviceorientation', onFirstEvent, true);
 
                 // Viz loop: single shared interval, no leak on toggle
                 if (sensorVizInterval) clearInterval(sensorVizInterval);
@@ -1205,10 +1294,27 @@ HTML = """<!DOCTYPE html>
                 btn.classList.add('bg-emerald-500/10', 'border-emerald-500/30', 'text-emerald-400');
                 btn.classList.remove('bg-emerald-500', 'border-emerald-500', 'text-white');
                 text.textContent = 'LIVE';
-                
+
                 const status = document.getElementById('sensor-status');
                 if (status) status.innerHTML = '<i class="fa-solid fa-circle text-slate-400 text-[8px]"></i> <span>Live paused</span>';
             }
+        }
+
+        // Manual "set center to current pose" — usable mid-session if the
+        // user wants to redefine "neutral" without stopping the live.
+        function recenterSensors() {
+            const a = currentSensors.yawRaw != null ? currentSensors.yawRaw : (currentSensors.yaw || 0);
+            const b = currentSensors.pitchRaw != null ? currentSensors.pitchRaw : (currentSensors.pitch || 0);
+            const g = currentSensors.rollRaw != null ? currentSensors.rollRaw : (currentSensors.roll || 0);
+            // Reset unwrap accumulators so subsequent values are relative
+            // to this pose and stay monotonic.
+            yawUnwrapped = a; yawLastAlpha = a;
+            pitchUnwrapped = b; pitchLastBeta = b;
+            rollUnwrapped = g; rollLastGamma = g;
+            centerOffset = { yaw: a, pitch: b, roll: g };
+            centerCalibrated = true;
+            const status = document.getElementById('sensor-status');
+            if (status) status.innerHTML = '<i class="fa-solid fa-circle text-emerald-400 text-[8px]"></i> <span>Recentered.</span>';
         }
 
         function getSensorMappingJSONEl() {
@@ -1484,6 +1590,8 @@ HTML = """<!DOCTYPE html>
                 'motion events:  ' + sensorEventCounts.devicemotion + (motionAge !== null ? '  (last: ' + motionAge + 's ago)' : '  (never)'),
                 'fetch /control: ' + sensorFetchCount + (fetchAge !== null ? '  (last: ' + fetchAge + 's ago)' : '  (never)'),
                 'yaw raw→unwrap: ' + (currentSensors.yawRaw != null ? currentSensors.yawRaw.toFixed(0) + '° → ' + (currentSensors.yaw || 0).toFixed(0) + '°' : 'n/a'),
+                'pitch raw→unwrap: ' + (currentSensors.pitchRaw != null ? currentSensors.pitchRaw.toFixed(0) + '° → ' + (currentSensors.pitch || 0).toFixed(0) + '°' : 'n/a'),
+                'center offset:   ' + (centerCalibrated ? 'yaw=' + centerOffset.yaw.toFixed(0) + '° pitch=' + centerOffset.pitch.toFixed(0) + '° roll=' + centerOffset.roll.toFixed(0) + '°' : 'not calibrated'),
                 'last error:     ' + (sensorFirstError || 'none'),
             ];
 
