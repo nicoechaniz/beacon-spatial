@@ -895,9 +895,13 @@ HTML = """<!DOCTYPE html>
             const mappings = getCurrentSensorMappings();
             const influence = sensorInfluence;
 
+            // Build a single batch of updates so we send ONE HTTP request per
+            // tick instead of N (one per band). This keeps the browser's
+            // connection pool happy and the UI feels fluid.
+            const updates = [];
             Object.entries(mappings).forEach(([sensorKey, map]) => {
                 if (!map.enabled) return;
-                
+
                 let sensorVal = 0;
                 if (sensorKey === 'yaw') sensorVal = ((currentSensors.yaw || 0) + 180) % 360 - 180;
                 else if (sensorKey === 'pitch') sensorVal = currentSensors.pitch || 0;
@@ -917,16 +921,30 @@ HTML = """<!DOCTYPE html>
                 if (targetParam === 'gain') computed = Math.max(0, Math.min(3, computed));
                 if (targetParam === 'q') computed = Math.max(0.1, Math.min(2, computed));
 
+                const isGlobal = (targetParam === 'mix' || targetParam === 'master');
                 bands.forEach(bandIdx => {
-                    let addr = `/beacon/${targetParam}`;
-                    if (targetParam !== 'mix' && targetParam !== 'master') addr += '/' + bandIdx;
-                    fetch('/control', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({address: addr, value: parseFloat(computed)})
-                    }).catch(() => {});
+                    const addr = isGlobal
+                        ? `/beacon/${targetParam}`
+                        : `/beacon/${targetParam}/${bandIdx}`;
+                    updates.push({address: addr, value: computed});
                 });
             });
+
+            if (updates.length === 0) return;
+
+            // Fire-and-forget: keepalive lets the browser send without holding
+            // a connection open. No .then() / .catch() — sensor pipeline
+            // shouldn't await ack on the critical path.
+            try {
+                fetch('/control/batch', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({updates: updates}),
+                    keepalive: true
+                });
+            } catch (e) {
+                // ignore — we don't care about the response on the audio path
+            }
         }
 
         // === Beautiful new sensor mapping UI ===
@@ -1530,6 +1548,35 @@ def control():
         pass  # PD replica not running — silently ignore
     return jsonify({"ok": True})
 
+@app.route("/control/batch", methods=["POST"])
+def control_batch():
+    # Sensor pipeline sends all per-tick updates in one POST so the
+    # browser's connection pool isn't exhausted at high event rates.
+    data = request.get_json() or {}
+    updates = data.get("updates") or []
+    if not isinstance(updates, list):
+        return jsonify({"ok": False, "error": "updates must be a list"}), 400
+    sent = 0
+    for u in updates:
+        if not isinstance(u, dict):
+            continue
+        addr = u.get("address", "")
+        raw = u.get("value", 0)
+        try:
+            val = float(raw)
+        except (TypeError, ValueError):
+            val = 1.0 if isinstance(raw, str) and raw else 0.0
+        try:
+            osc.send_message(addr, val)
+            sent += 1
+        except Exception:
+            pass
+        try:
+            osc_pd.send_message(addr, val)
+        except Exception:
+            pass
+    return jsonify({"ok": True, "sent": sent})
+
 @app.route("/save_config", methods=["POST"])
 def save_config():
     data = request.get_json()
@@ -1568,4 +1615,6 @@ if __name__ == "__main__":
     print("Open your browser at: http://localhost:5050")
     print("Make sure start-beacon.sh (scsynth + sclang/beacon.scd) is running!")
     print("=" * 50)
-    app.run(host="0.0.0.0", port=5050, debug=False)
+    # threaded=True so concurrent sensor-batch POSTs don't serialize
+    # behind each other on the Werkzeug dev server's main request loop.
+    app.run(host="0.0.0.0", port=5050, debug=False, threaded=True)
