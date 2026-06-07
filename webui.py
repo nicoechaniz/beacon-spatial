@@ -229,52 +229,38 @@ HTML = """<!DOCTYPE html>
     </div>
 
     <div class="max-w-7xl mx-auto px-4 pb-8 pt-4">
-        
-        <!-- Status + Presets -->
-        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
-            <div class="flex items-center gap-2">
-                <div id="sensor-status" 
-                     class="text-xs px-3 py-1 bg-slate-900 border border-slate-800 rounded-full text-slate-400 font-medium flex items-center gap-1.5">
-                    <i class="fa-solid fa-circle text-emerald-400 text-[8px]"></i>
-                    <span>Ready</span>
-                </div>
-                <div id="config-status" class="text-xs px-3 py-1 bg-slate-900 border border-slate-800 rounded-full text-slate-400 font-medium">
-                    Presets ready
-                </div>
-            </div>
 
-            <!-- Presets -->
-            <div class="flex items-center gap-2">
-                <div class="flex items-center bg-slate-900 border border-slate-800 rounded-2xl p-1 text-sm">
-                    <select id="load-select" 
-                            class="bg-transparent px-3 py-1 text-sm outline-none border-r border-slate-700 text-slate-300">
-                        <option value="">Load preset...</option>
-                    </select>
-                    <button onclick="loadConfig()" 
-                            class="px-4 py-1 text-cyan-400 hover:text-cyan-300 font-medium flex items-center gap-1.5 text-sm">
-                        <i class="fa-solid fa-download text-xs"></i>
-                        <span>Load</span>
-                    </button>
-                </div>
-                
-                <div class="flex items-center bg-slate-900 border border-slate-800 rounded-2xl p-1">
-                    <input id="save-name" type="text" placeholder="preset name" 
-                           class="bg-transparent px-3 py-1 text-sm outline-none w-28 text-slate-300 placeholder:text-slate-600">
-                    <button onclick="saveConfig()" 
-                            class="px-4 py-1 text-emerald-400 hover:text-emerald-300 font-medium flex items-center gap-1.5 text-sm">
-                        <i class="fa-solid fa-save text-xs"></i>
-                        <span>Save</span>
-                    </button>
-                </div>
+        <!-- Tabs (Manual / Sensors / Presets) -->
+        <div class="flex items-center gap-2 mb-4" id="tab-bar">
+            <button data-tab-target="manual" class="tab-btn px-4 py-2 rounded-2xl text-sm font-medium border border-cyan-500/40 bg-cyan-500/10 text-cyan-300">
+                <i class="fa-solid fa-sliders text-xs mr-1.5"></i>Manual
+            </button>
+            <button data-tab-target="sensors" class="tab-btn px-4 py-2 rounded-2xl text-sm font-medium border border-slate-700 bg-slate-900 text-slate-400 hover:text-slate-200">
+                <i class="fa-solid fa-mobile-screen text-xs mr-1.5"></i>Sensors
+            </button>
+            <button data-tab-target="presets" class="tab-btn px-4 py-2 rounded-2xl text-sm font-medium border border-slate-700 bg-slate-900 text-slate-400 hover:text-slate-200">
+                <i class="fa-solid fa-folder-open text-xs mr-1.5"></i>Presets
+            </button>
+        </div>
+
+        <!-- Status badges (always visible) -->
+        <div class="flex flex-wrap items-center gap-2 mb-4">
+            <div id="sensor-status"
+                 class="text-xs px-3 py-1 bg-slate-900 border border-slate-800 rounded-full text-slate-400 font-medium flex items-center gap-1.5">
+                <i class="fa-solid fa-circle text-emerald-400 text-[8px]"></i>
+                <span>Ready</span>
+            </div>
+            <div id="config-status" class="text-xs px-3 py-1 bg-slate-900 border border-slate-800 rounded-full text-slate-400 font-medium">
+                Presets ready
             </div>
         </div>
 
-        <!-- Spectrum Visual -->
+        <!-- Spectrum Visual (always visible) -->
         <div class="mb-5">
             <div class="flex items-end gap-1 h-16 px-1 bg-slate-950/70 border border-slate-800 rounded-3xl p-2" id="spectrum">
                 {% for band in bands %}
                 <div class="flex-1 flex flex-col items-center">
-                    <div class="spectrum-bar w-full rounded-t-full transition-all duration-75" 
+                    <div class="spectrum-bar w-full rounded-t-full transition-all duration-75"
                          id="spec{{ loop.index }}"
                          style="background: {{ band.color }}; height: {{ (band.default_gain / 3.0 * 100)|int }}%; min-height: 4px;"></div>
                     <div class="text-[9px] text-slate-500 mt-0.5 font-mono">{{ band.freq }}</div>
@@ -283,153 +269,206 @@ HTML = """<!DOCTYPE html>
             </div>
         </div>
 
-        <!-- Main Grid: Bands + Sensors -->
-        <div class="grid grid-cols-1 xl:grid-cols-12 gap-5">
-            
-            <!-- MANUAL SPATIAL CONTROLS -->
-            <div class="xl:col-span-7">
-                <div class="flex items-center justify-between mb-2 px-1">
-                    <div class="flex items-center gap-x-2">
-                        <span class="font-semibold tracking-tight text-lg">Manual Controls</span>
-                        <span class="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-500">13 bands</span>
+        <!-- ============= TAB: MANUAL ============= -->
+        <section data-tab="manual" class="tab-panel">
+            <div class="flex items-center justify-between mb-2 px-1">
+                <div class="flex items-center gap-x-2">
+                    <span class="font-semibold tracking-tight text-lg">Manual Controls</span>
+                    <span class="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-500">13 bands</span>
+                </div>
+                <button onclick="resetAll()"
+                        class="text-xs flex items-center gap-1.5 px-3 py-1 rounded-xl border border-orange-500/30 text-orange-400 hover:bg-orange-500/10 transition-colors">
+                    <i class="fa-solid fa-undo text-xs"></i>
+                    <span class="font-medium">Reset</span>
+                </button>
+            </div>
+
+            <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-7 gap-2" id="band-grid">
+                {% for band in bands %}
+                <div class="band-card rounded-2xl p-2.5 border border-slate-800" id="band{{ loop.index }}" style="border-color: {{ band.color }}20;">
+                    <div class="flex items-center justify-between mb-1.5">
+                        <div>
+                            <div class="band-header font-mono" style="color: {{ band.color }};">{{ band.freq }} Hz</div>
+                        </div>
+                        <button onclick="toggleSolo({{ loop.index }}, this)" id="s{{ loop.index }}"
+                                class="solo-btn text-[9px] px-2 py-px border border-slate-700 hover:border-slate-600 rounded-lg font-bold text-slate-400 active:bg-white active:text-black transition-all">SOLO</button>
                     </div>
-                    <button onclick="resetAll()" 
-                            class="text-xs flex items-center gap-1.5 px-3 py-1 rounded-xl border border-orange-500/30 text-orange-400 hover:bg-orange-500/10 transition-colors">
-                        <i class="fa-solid fa-undo text-xs"></i>
-                        <span class="font-medium">Reset</span>
+
+                    <!-- Gain -->
+                    <div class="mb-2">
+                        <div class="flex justify-between items-baseline mb-0.5">
+                            <span class="control-label">GAIN</span>
+                            <span id="g{{ loop.index }}" class="value-display font-mono text-cyan-300 text-sm">{{ band.default_gain }}</span>
+                        </div>
+                        <input type="range" min="0" max="3" step="0.05" value="{{ band.default_gain }}" id="gain{{ loop.index }}"
+                               class="modern-slider w-full accent-cyan-400"
+                               oninput="send('gain', {{ loop.index }}, this.value); show(this, 'g{{ loop.index }}'); updateSpec({{ loop.index }}, this.value)">
+                    </div>
+
+                    <!-- Azimuth -->
+                    <div class="mb-2">
+                        <div class="flex justify-between items-baseline mb-0.5">
+                            <span class="control-label">AZIMUTH</span>
+                            <span id="a{{ loop.index }}" class="value-display font-mono text-amber-300 text-sm">{{ band.default_az }}°</span>
+                        </div>
+                        <input type="range" min="-180" max="180" step="1" value="{{ band.default_az }}" id="az{{ loop.index }}"
+                               class="modern-slider w-full accent-amber-400"
+                               oninput="send('az', {{ loop.index }}, this.value); show(this, 'a{{ loop.index }}')">
+                    </div>
+
+                    <!-- Distance -->
+                    <div class="mb-2">
+                        <div class="flex justify-between items-baseline mb-0.5">
+                            <span class="control-label">DISTANCE</span>
+                            <span id="d{{ loop.index }}" class="value-display font-mono text-emerald-300 text-sm">{{ band.default_dist }}</span>
+                        </div>
+                        <input type="range" min="0" max="10" step="0.1" value="{{ band.default_dist }}" id="dist{{ loop.index }}"
+                               class="modern-slider w-full accent-emerald-400"
+                               oninput="send('dist', {{ loop.index }}, this.value); show(this, 'd{{ loop.index }}')">
+                    </div>
+
+                    {% if band.default_q is defined %}
+                    <!-- Q -->
+                    <div>
+                        <div class="flex justify-between items-baseline mb-0.5">
+                            <span class="control-label">Q (resonance)</span>
+                            <span id="q{{ loop.index }}" class="value-display font-mono text-violet-300 text-sm">{{ band.default_q }}</span>
+                        </div>
+                        <input type="range" min="0.01" max="2.0" step="0.001" value="{{ band.default_q }}" id="q{{ loop.index }}"
+                               class="modern-slider w-full accent-violet-400"
+                               oninput="send('q', {{ loop.index }}, this.value); show(this, 'q{{ loop.index }}')">
+                    </div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+        </section>
+
+        <!-- ============= TAB: SENSORS ============= -->
+        <section data-tab="sensors" class="tab-panel" hidden>
+            <div class="flex items-center justify-between mb-3 px-1">
+                <div class="flex items-center gap-x-2">
+                    <span class="font-semibold tracking-tight text-lg">Sensor Interpreter</span>
+                    <span class="px-2 py-0.5 text-[10px] bg-teal-900/50 text-teal-400 rounded-full text-center font-medium">Phone → Parameters</span>
+                </div>
+                <div class="text-[10px] text-slate-500 font-mono" id="sensor-tab-hint">
+                    tap LIVE to start
+                </div>
+            </div>
+
+            <div class="section rounded-3xl p-4 border border-slate-800">
+
+                <!-- Orientation Visual -->
+                <div class="mb-4">
+                    <div class="flex justify-between items-center mb-1.5 px-1">
+                        <span class="control-label">ORIENTATION VISUAL</span>
+                        <span id="orientation-label" class="text-[10px] text-slate-500 font-mono">—</span>
+                    </div>
+                    <canvas id="orientation-canvas" width="300" height="140" class="canvas-orientation w-full"></canvas>
+                </div>
+
+                <!-- Sensor Cards -->
+                <div class="grid grid-cols-2 gap-3 mb-4" id="sensor-cards">
+                    <!-- Populated by JS: Yaw, Pitch, Roll, Accel -->
+                </div>
+
+                <!-- Mapping Editor -->
+                <div class="mb-3">
+                    <div class="flex items-center justify-between mb-1.5 px-0.5">
+                        <span class="control-label">MAPPING EDITOR</span>
+                        <button onclick="resetSensorMappingToDefault(); buildSensorMappingUI(); updateDebugViz();"
+                                class="text-[10px] px-2 py-0.5 rounded-lg border border-slate-700 hover:bg-slate-900 text-slate-400">Reset defaults</button>
+                    </div>
+
+                    <div id="sensor-mapping-rows" class="space-y-2 text-sm">
+                        <!-- JS populated beautiful rows -->
+                    </div>
+                </div>
+
+                <!-- Active Drivers -->
+                <div>
+                    <div class="flex items-center justify-between mb-1.5 px-0.5">
+                        <span class="control-label">CURRENTLY DRIVING</span>
+                        <button onclick="applyCurrentMappingAndSend()"
+                                class="text-emerald-400 hover:text-emerald-300 text-xs flex items-center gap-1 px-2 py-0.5 rounded-lg border border-emerald-900 hover:bg-emerald-950">
+                            <i class="fa-solid fa-paper-plane text-xs"></i>
+                            <span class="font-medium text-[10px]">FORCE SEND</span>
+                        </button>
+                    </div>
+                    <div id="sensor-driving"
+                         class="bg-[#0a0c12] border border-slate-800 rounded-2xl p-3 min-h-[68px] text-xs font-mono leading-snug text-emerald-300/90 whitespace-pre-line">
+                        (enable LIVE and move your phone)
+                    </div>
+                </div>
+
+                <div class="flex flex-wrap gap-2 mt-3 text-xs">
+                    <button onclick="saveSensorConfigToPreset()"
+                            class="flex-1 sm:flex-none px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-2xl text-emerald-400 text-xs font-medium flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-save"></i> <span>Save mapping to preset</span>
+                    </button>
+                    <button onclick="exportSensorConfig()"
+                            class="flex-1 sm:flex-none px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-2xl text-xs font-medium flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-download"></i> <span>Export JSON</span>
                     </button>
                 </div>
+            </div>
+        </section>
 
-                <!-- Band Cards Grid -->
-                <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-7 gap-2" id="band-grid">
-                    {% for band in bands %}
-                    <div class="band-card rounded-2xl p-2.5 border border-slate-800" id="band{{ loop.index }}" style="border-color: {{ band.color }}20;">
-                        <div class="flex items-center justify-between mb-1.5">
-                            <div>
-                                <div class="band-header font-mono" style="color: {{ band.color }};">{{ band.freq }} Hz</div>
-                            </div>
-                            <button onclick="toggleSolo({{ loop.index }}, this)" id="s{{ loop.index }}"
-                                    class="solo-btn text-[9px] px-2 py-px border border-slate-700 hover:border-slate-600 rounded-lg font-bold text-slate-400 active:bg-white active:text-black transition-all">SOLO</button>
-                        </div>
-
-                        <!-- Gain -->
-                        <div class="mb-2">
-                            <div class="flex justify-between items-baseline mb-0.5">
-                                <span class="control-label">GAIN</span>
-                                <span id="g{{ loop.index }}" class="value-display font-mono text-cyan-300 text-sm">{{ band.default_gain }}</span>
-                            </div>
-                            <input type="range" min="0" max="3" step="0.05" value="{{ band.default_gain }}" id="gain{{ loop.index }}"
-                                   class="modern-slider w-full accent-cyan-400"
-                                   oninput="send('gain', {{ loop.index }}, this.value); show(this, 'g{{ loop.index }}'); updateSpec({{ loop.index }}, this.value)">
-                        </div>
-
-                        <!-- Azimuth -->
-                        <div class="mb-2">
-                            <div class="flex justify-between items-baseline mb-0.5">
-                                <span class="control-label">AZIMUTH</span>
-                                <span id="a{{ loop.index }}" class="value-display font-mono text-amber-300 text-sm">{{ band.default_az }}°</span>
-                            </div>
-                            <input type="range" min="-180" max="180" step="1" value="{{ band.default_az }}" id="az{{ loop.index }}"
-                                   class="modern-slider w-full accent-amber-400"
-                                   oninput="send('az', {{ loop.index }}, this.value); show(this, 'a{{ loop.index }}')">
-                        </div>
-
-                        <!-- Distance -->
-                        <div class="mb-2">
-                            <div class="flex justify-between items-baseline mb-0.5">
-                                <span class="control-label">DISTANCE</span>
-                                <span id="d{{ loop.index }}" class="value-display font-mono text-emerald-300 text-sm">{{ band.default_dist }}</span>
-                            </div>
-                            <input type="range" min="0" max="10" step="0.1" value="{{ band.default_dist }}" id="dist{{ loop.index }}"
-                                   class="modern-slider w-full accent-emerald-400"
-                                   oninput="send('dist', {{ loop.index }}, this.value); show(this, 'd{{ loop.index }}')">
-                        </div>
-
-                        {% if band.default_q is defined %}
-                        <!-- Q -->
-                        <div>
-                            <div class="flex justify-between items-baseline mb-0.5">
-                                <span class="control-label">Q (resonance)</span>
-                                <span id="q{{ loop.index }}" class="value-display font-mono text-violet-300 text-sm">{{ band.default_q }}</span>
-                            </div>
-                            <input type="range" min="0.01" max="2.0" step="0.001" value="{{ band.default_q }}" id="q{{ loop.index }}"
-                                   class="modern-slider w-full accent-violet-400"
-                                   oninput="send('q', {{ loop.index }}, this.value); show(this, 'q{{ loop.index }}')">
-                        </div>
-                        {% endif %}
-                    </div>
-                    {% endfor %}
+        <!-- ============= TAB: PRESETS ============= -->
+        <section data-tab="presets" class="tab-panel" hidden>
+            <div class="flex items-center justify-between mb-3 px-1">
+                <div class="flex items-center gap-x-2">
+                    <span class="font-semibold tracking-tight text-lg">Presets</span>
+                    <span id="preset-count" class="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-500">0 files</span>
                 </div>
+                <button onclick="loadConfigList()"
+                        class="text-xs flex items-center gap-1.5 px-3 py-1 rounded-xl border border-slate-700 text-slate-400 hover:bg-slate-900">
+                    <i class="fa-solid fa-arrows-rotate text-xs"></i>
+                    <span class="font-medium">Refresh</span>
+                </button>
             </div>
 
-            <!-- SENSOR INTERPRETER -->
-            <div class="xl:col-span-5">
-                <div class="flex items-center justify-between mb-2 px-1">
-                    <div class="flex items-center gap-x-2">
-                        <span class="font-semibold tracking-tight text-lg">Sensor Interpreter</span>
-                        <span class="px-2 py-0.5 text-[10px] bg-teal-900/50 text-teal-400 rounded-full text-center font-medium">Phone → Parameters</span>
-                    </div>
-                </div>
-
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <!-- Save panel -->
                 <div class="section rounded-3xl p-4 border border-slate-800">
-                    
-                    <!-- Orientation Visual -->
-                    <div class="mb-4">
-                        <div class="flex justify-between items-center mb-1.5 px-1">
-                            <span class="control-label">ORIENTATION VISUAL</span>
-                            <span id="orientation-label" class="text-[10px] text-slate-500 font-mono">—</span>
-                        </div>
-                        <canvas id="orientation-canvas" width="300" height="140" class="canvas-orientation w-full"></canvas>
+                    <div class="control-label mb-2">SAVE CURRENT STATE</div>
+                    <input id="save-name" type="text" placeholder="preset name"
+                           class="w-full bg-slate-950 border border-slate-700 rounded-2xl px-3 py-2 text-sm outline-none text-slate-300 placeholder:text-slate-600 mb-3">
+                    <button onclick="saveConfig()"
+                            class="w-full py-2 rounded-2xl border border-emerald-500/40 text-emerald-400 hover:bg-emerald-950 font-medium text-sm flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-save text-xs"></i>
+                        <span>Save (bands + mix + master + sensor_mappings)</span>
+                    </button>
+                    <div class="text-[10px] text-slate-500 mt-2 leading-relaxed">
+                        Includes the current <span class="font-mono text-slate-400">sensor_mappings</span> from the Sensors tab so a preset can be loaded on any device with the same mapping intact.
                     </div>
+                </div>
 
-                    <!-- Sensor Cards -->
-                    <div class="grid grid-cols-2 gap-3 mb-4" id="sensor-cards">
-                        <!-- Populated by JS: Yaw, Pitch, Roll, Accel -->
+                <!-- Load panel -->
+                <div class="section rounded-3xl p-4 border border-slate-800">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="control-label">LOAD FROM DISK</span>
                     </div>
-
-                    <!-- Mapping Editor -->
-                    <div class="mb-3">
-                        <div class="flex items-center justify-between mb-1.5 px-0.5">
-                            <span class="control-label">MAPPING EDITOR</span>
-                            <button onclick="resetSensorMappingToDefault(); buildSensorMappingUI(); updateDebugViz();"
-                                    class="text-[10px] px-2 py-0.5 rounded-lg border border-slate-700 hover:bg-slate-900 text-slate-400">Reset defaults</button>
-                        </div>
-                        
-                        <div id="sensor-mapping-rows" class="space-y-2 text-sm">
-                            <!-- JS populated beautiful rows -->
-                        </div>
-                    </div>
-
-                    <!-- Active Drivers -->
-                    <div>
-                        <div class="flex items-center justify-between mb-1.5 px-0.5">
-                            <span class="control-label">CURRENTLY DRIVING</span>
-                            <button onclick="applyCurrentMappingAndSend()" 
-                                    class="text-emerald-400 hover:text-emerald-300 text-xs flex items-center gap-1 px-2 py-0.5 rounded-lg border border-emerald-900 hover:bg-emerald-950">
-                                <i class="fa-solid fa-paper-plane text-xs"></i>
-                                <span class="font-medium text-[10px]">FORCE SEND</span>
-                            </button>
-                        </div>
-                        <div id="sensor-driving" 
-                             class="bg-[#0a0c12] border border-slate-800 rounded-2xl p-3 min-h-[68px] text-xs font-mono leading-snug text-emerald-300/90 whitespace-pre-line">
-                            (enable LIVE and move your phone)
-                        </div>
-                    </div>
-
-                    <div class="flex flex-wrap gap-2 mt-3 text-xs">
-                        <button onclick="saveSensorConfigToPreset()" 
-                                class="flex-1 sm:flex-none px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-2xl text-emerald-400 text-xs font-medium flex items-center justify-center gap-2">
-                            <i class="fa-solid fa-save"></i> <span>Save mapping to preset</span>
-                        </button>
-                        <button onclick="exportSensorConfig()" 
-                                class="flex-1 sm:flex-none px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-2xl text-xs font-medium flex items-center justify-center gap-2">
-                            <i class="fa-solid fa-download"></i> <span>Export JSON</span>
-                        </button>
-                    </div>
+                    <select id="load-select-large"
+                            class="w-full bg-slate-950 border border-slate-700 rounded-2xl px-3 py-2 text-sm outline-none text-slate-300 mb-3">
+                        <option value="">— pick a preset —</option>
+                    </select>
+                    <button onclick="loadConfigFromLargeSelect()"
+                            class="w-full py-2 rounded-2xl border border-cyan-500/40 text-cyan-400 hover:bg-cyan-950 font-medium text-sm flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-download text-xs"></i>
+                        <span>Load preset</span>
+                    </button>
                 </div>
             </div>
 
-        </div>
+            <!-- Preset list (visible, clickable cards) -->
+            <div class="mt-4">
+                <div class="control-label mb-2 px-1">FILES IN configs/</div>
+                <div id="preset-cards" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                    <!-- JS populated from /list_configs -->
+                </div>
+            </div>
+        </section>
 
         <!-- Global Mix & Master -->
         <div class="mt-5 section rounded-3xl p-4 border border-slate-800">
@@ -1201,22 +1240,107 @@ HTML = """<!DOCTYPE html>
         // Initialize everything
         function initializeUI() {
             initTailwind();
-            
+
             // Initial values for mix/master
             const mix = document.getElementById('mix');
             const master = document.getElementById('master');
             if (mix) show(mix, 'vmix');
             if (master) show(master, 'vmaster');
-            
+
+            // Wire up tab buttons
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const target = btn.getAttribute('data-tab-target');
+                    switchTab(target);
+                });
+            });
+
             // Boot sensor stuff
             initSensorUI();
             loadConfigList();
-            
+            renderPresetCards();
+
             // Default influence
             updateSensorInfluence(sensorInfluence);
-            
+
+            // Restore last tab (or default to manual)
+            const last = localStorage.getItem('beacon.activeTab') || 'manual';
+            switchTab(last);
+
             // Keyboard hint
             console.log('%c[Beacon] Excellent UI loaded. Sensors ready for phone.', 'color:#64748b');
+        }
+
+        function switchTab(name) {
+            // Show/hide panels
+            document.querySelectorAll('.tab-panel').forEach(p => {
+                p.hidden = p.getAttribute('data-tab') !== name;
+            });
+            // Style active button
+            document.querySelectorAll('.tab-btn').forEach(b => {
+                const active = b.getAttribute('data-tab-target') === name;
+                b.classList.toggle('border-cyan-500/40', active);
+                b.classList.toggle('bg-cyan-500/10', active);
+                b.classList.toggle('text-cyan-300', active);
+                b.classList.toggle('border-slate-700', !active);
+                b.classList.toggle('bg-slate-900', !active);
+                b.classList.toggle('text-slate-400', !active);
+            });
+            localStorage.setItem('beacon.activeTab', name);
+        }
+
+        function renderPresetCards() {
+            fetch('/list_configs').then(r => r.json()).then(data => {
+                const configs = data.configs || [];
+                const big = document.getElementById('load-select-large');
+                const small = document.getElementById('load-select');
+                const cards = document.getElementById('preset-cards');
+                const count = document.getElementById('preset-count');
+                if (count) count.textContent = configs.length + ' files';
+
+                if (big) {
+                    big.innerHTML = '<option value="">— pick a preset —</option>';
+                    configs.forEach(c => {
+                        const opt = document.createElement('option');
+                        opt.value = c; opt.textContent = c;
+                        big.appendChild(opt);
+                    });
+                }
+                if (small) {
+                    // The original top-bar small select (kept for back-compat)
+                    small.innerHTML = '<option value="">Load preset...</option>';
+                    configs.forEach(c => {
+                        const opt = document.createElement('option');
+                        opt.value = c; opt.textContent = c;
+                        small.appendChild(opt);
+                    });
+                }
+                if (cards) {
+                    cards.innerHTML = '';
+                    configs.forEach(c => {
+                        const card = document.createElement('button');
+                        card.className = 'text-left rounded-2xl border border-slate-800 bg-slate-900 hover:bg-slate-800 hover:border-cyan-500/40 transition-colors p-3';
+                        card.innerHTML = '<div class="flex items-center gap-2 mb-1">' +
+                            '<i class="fa-solid fa-file-audio text-cyan-400 text-sm"></i>' +
+                            '<span class="font-mono text-sm text-slate-200">' + c + '</span>' +
+                            '</div>' +
+                            '<div class="text-[10px] text-slate-500">click to load</div>';
+                        card.onclick = () => {
+                            document.getElementById('load-select').value = c;
+                            loadConfig();
+                        };
+                        cards.appendChild(card);
+                    });
+                }
+            });
+        }
+
+        function loadConfigFromLargeSelect() {
+            const sel = document.getElementById('load-select-large');
+            if (sel && sel.value) {
+                document.getElementById('load-select').value = sel.value;
+                loadConfig();
+            }
         }
 
         window.onload = initializeUI;
