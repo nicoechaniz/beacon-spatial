@@ -709,6 +709,14 @@ HTML = """<!DOCTYPE html>
 
         // === Sensor Logic (kept and enhanced) ===
         let currentSensors = {};
+        // Unwrap state for yaw (alpha). The browser delivers alpha as a
+        // compass bearing 0..360 that wraps at 0/360. When the user
+        // rotates past 180 -> -180 the raw value JUMPS (179 -> -179),
+        // which makes the spatialization feel glitchy. We track the
+        // cumulative angle (no wrap) and the most recent raw alpha so
+        // unwrapYaw() can subtract the wrap correctly.
+        let yawUnwrapped = 0;
+        let yawLastAlpha = null;
         let liveSensorsActive = false;
         let sensorInfluence = 0.65;
         let lastSensorSend = 0;
@@ -741,9 +749,35 @@ HTML = """<!DOCTYPE html>
             });
         }
 
+        // Unwrap a compass bearing sequence (0..360) into a continuous
+        // accumulating angle with no wrap. Each call integrates one new
+        // sample; on the first call we just seed with the raw value.
+        // We expose the helper as window.__unwrapYaw for the debug panel.
+        function unwrapYaw(rawAlpha) {
+            if (rawAlpha == null || isNaN(rawAlpha)) return yawUnwrapped;
+            if (yawLastAlpha === null) {
+                yawLastAlpha = rawAlpha;
+                yawUnwrapped = rawAlpha;
+                return yawUnwrapped;
+            }
+            let delta = rawAlpha - yawLastAlpha;
+            // If the delta is more than 180 in absolute value, the sensor
+            // crossed the 0/360 wrap point; correct by adding/subtracting 360.
+            if (delta > 180)  delta -= 360;
+            if (delta < -180) delta += 360;
+            yawUnwrapped += delta;
+            yawLastAlpha = rawAlpha;
+            return yawUnwrapped;
+        }
+        window.__unwrapYaw = unwrapYaw;
+
         function startSensorListeners() {
             window.addEventListener('deviceorientation', (event) => {
-                currentSensors.yaw = event.alpha || 0;
+                const rawAlpha = event.alpha || 0;
+                // Store both: raw (so debug panel can see the wrap) and
+                // unwrapped (so the spatial mapping never jumps).
+                currentSensors.yaw = unwrapYaw(rawAlpha);
+                currentSensors.yawRaw = rawAlpha;
                 currentSensors.pitch = event.beta || 0;
                 currentSensors.roll = event.gamma || 0;
                 updateSensorDisplay();
@@ -785,13 +819,25 @@ HTML = """<!DOCTYPE html>
                 const barEl = document.getElementById('sensor-bar-' + s.key);
                 if (valEl) {
                     let v = currentSensors[s.key] || 0;
-                    if (s.key === 'yaw') v = ((v + 180) % 360) - 180;
-                    valEl.textContent = v.toFixed(1) + s.unit;
+                    // Yaw is already unwrapped (no wrap at 180/-180). Show
+                    // the actual continuous angle, mod 720 so the display
+                    // stays readable after many rotations.
+                    if (s.key === 'yaw') {
+                        const shown = ((v % 720) + 720) % 720 - 360;
+                        valEl.textContent = (v >= 0 ? '+' : '') + v.toFixed(0) + '° (' + shown.toFixed(0) + '°)';
+                    } else {
+                        valEl.textContent = v.toFixed(1) + s.unit;
+                    }
                 }
                 if (barEl) {
                     let pct = 50;
                     let v = currentSensors[s.key] || 0;
-                    if (s.key === 'yaw') pct = ((v + 180) % 360) / 360 * 100;
+                    if (s.key === 'yaw') {
+                        // Map -360..360 to 0..100%, so the bar oscillates as
+                        // the user rotates and visibly resets when they
+                        // spin through 0 (vs. the old hard jump at 180).
+                        pct = Math.min(100, Math.max(0, (v + 360) / 720 * 100));
+                    }
                     else if (s.key === 'pitch') pct = Math.min(100, Math.max(0, (v + 90) / 180 * 100));
                     else if (s.key === 'roll') pct = Math.min(100, Math.max(0, (v + 90) / 180 * 100));
                     else if (s.key === 'accel') pct = Math.min(100, v * 15);
@@ -812,14 +858,14 @@ HTML = """<!DOCTYPE html>
             const yaw = currentSensors.yaw || 0;
             const pitch = currentSensors.pitch || 0;
             const roll = currentSensors.roll || 0;
-            
+
             // Background circle
             ctx.strokeStyle = '#1f2937';
             ctx.lineWidth = 2;
             ctx.beginPath();
             ctx.arc(w/2, h/2 + 10, 52, 0, Math.PI * 2);
             ctx.stroke();
-            
+
             // Horizon line (pitch influence)
             ctx.strokeStyle = '#475569';
             ctx.lineWidth = 1.5;
@@ -828,11 +874,14 @@ HTML = """<!DOCTYPE html>
             ctx.moveTo(w/2 - 55, horizonY);
             ctx.lineTo(w/2 + 55, horizonY);
             ctx.stroke();
-            
-            // Yaw arrow
+
+            // Yaw arrow — the canvas only shows the cardinal direction,
+            // so we use the unwrapped yaw mod 360 to keep the arrow at
+            // the correct bearing without spin-jumping.
             ctx.save();
             ctx.translate(w/2, h/2 + 10);
-            ctx.rotate((yaw - 180) * Math.PI / 180);
+            const yawForArrow = ((yaw % 360) + 360) % 360;
+            ctx.rotate((yawForArrow - 180) * Math.PI / 180);
             
             ctx.strokeStyle = '#f59e0b';
             ctx.lineWidth = 3;
@@ -865,7 +914,14 @@ HTML = """<!DOCTYPE html>
             
             // Label
             const label = document.getElementById('orientation-label');
-            if (label) label.textContent = `Y:${yaw.toFixed(0)}° P:${pitch.toFixed(0)}° R:${roll.toFixed(0)}°`;
+            if (label) {
+                // Show unwrapped yaw as the canonical "how much have you
+                // turned" reading, plus the cardinal bearing mod 360 so
+                // the user can also see which compass direction they're
+                // facing right now.
+                const yawShown = ((yaw % 360) + 360) % 360;
+                label.textContent = `Y:${yaw.toFixed(0)}° (→${yawShown.toFixed(0)}°) P:${pitch.toFixed(0)}° R:${roll.toFixed(0)}°`;
+            }
         }
 
         function parseBands(bandsSpec) {
@@ -903,7 +959,12 @@ HTML = """<!DOCTYPE html>
                 if (!map.enabled) return;
 
                 let sensorVal = 0;
-                if (sensorKey === 'yaw') sensorVal = ((currentSensors.yaw || 0) + 180) % 360 - 180;
+                if (sensorKey === 'yaw') {
+                    // Already unwrapped by the listener — no % 360 here.
+                    // Scale defaults to 1.0 → mod(-inf, +inf) range. UI
+                    // mapping on the bands controls how fast az sweeps.
+                    sensorVal = currentSensors.yaw || 0;
+                }
                 else if (sensorKey === 'pitch') sensorVal = currentSensors.pitch || 0;
                 else if (sensorKey === 'roll') sensorVal = currentSensors.roll || 0;
                 else if (sensorKey === 'accel') sensorVal = Math.max(0, (currentSensors.accel || 0) - 1) * 0.5;
@@ -1422,6 +1483,7 @@ HTML = """<!DOCTYPE html>
                 'orient events:  ' + sensorEventCounts.deviceorientation + (orientAge !== null ? '  (last: ' + orientAge + 's ago)' : '  (never)'),
                 'motion events:  ' + sensorEventCounts.devicemotion + (motionAge !== null ? '  (last: ' + motionAge + 's ago)' : '  (never)'),
                 'fetch /control: ' + sensorFetchCount + (fetchAge !== null ? '  (last: ' + fetchAge + 's ago)' : '  (never)'),
+                'yaw raw→unwrap: ' + (currentSensors.yawRaw != null ? currentSensors.yawRaw.toFixed(0) + '° → ' + (currentSensors.yaw || 0).toFixed(0) + '°' : 'n/a'),
                 'last error:     ' + (sensorFirstError || 'none'),
             ];
 
