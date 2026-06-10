@@ -1384,7 +1384,9 @@ HTML = """<!DOCTYPE html>
 
         // Load/Save config (kept intact)
         function loadConfig() {
-            const name = document.getElementById('load-select').value;
+            const sel = document.getElementById('load-select-large');
+            if (!sel) return;
+            const name = sel.value;
             if (!name) { 
                 const status = document.getElementById('config-status');
                 if (status) status.textContent = 'Select a preset';
@@ -1411,7 +1413,8 @@ HTML = """<!DOCTYPE html>
 
         function loadConfigList() {
             fetch('/list_configs').then(r => r.json()).then(data => {
-                const sel = document.getElementById('load-select');
+                const sel = document.getElementById('load-select-large');
+                if (!sel) return;
                 sel.innerHTML = '<option value="">Load preset...</option>';
                 (data.configs || []).forEach(c => {
                     const opt = document.createElement('option');
@@ -1530,7 +1533,8 @@ HTML = """<!DOCTYPE html>
                             '</div>' +
                             '<div class="text-[10px] text-slate-500">click to load</div>';
                         card.onclick = () => {
-                            document.getElementById('load-select').value = c;
+                            const big = document.getElementById('load-select-large');
+                            if (big) big.value = c;
                             loadConfig();
                         };
                         cards.appendChild(card);
@@ -1682,11 +1686,7 @@ HTML = """<!DOCTYPE html>
         window.addEventListener('devicemotion', __updateAfterOrient, true);
 
         function loadConfigFromLargeSelect() {
-            const sel = document.getElementById('load-select-large');
-            if (sel && sel.value) {
-                document.getElementById('load-select').value = sel.value;
-                loadConfig();
-            }
+            loadConfig();
         }
 
         window.onload = initializeUI;
