@@ -35,7 +35,7 @@
 
 (
 var buf, decoder, synth, oscdefs;
-var audioFilePath = "/home/nicolas/Projects/beacon-spatial/harmonic_beacon_2026_05_13_session.wav";
+var audioFilePath = ("BEACON_AUDIO".getenv ? "/home/nicolas/Projects/beacon-spatial/harmonic_beacon_2026_05_13_session.wav");
 var useFile = "BEACON_SOURCE".getenv == "file";
 var defName = if (useFile) { \beacon_file } { \beacon_live };
 
@@ -85,9 +85,9 @@ server.doWhenBooted({
   var defaultSolo  = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
   var mix0 = 0.85, master0 = 0.9;
   var cond = Condition.new;
-  var makeBeaconDef = { |name, srcFunc|
+  var makeBeaconDef = { |name|
     SynthDef(name, {
-      arg out = 0, bufnum = 0;
+      arg out = 0, bufnum = 0, srcmode = 0;   // srcmode: 0 = archivo (PlayBuf), 1 = entrada de placa (SoundIn)
 
       // NamedControls with .lag(0.05) ONLY on azimuth/gain (per spec)
       var gains = defaultGains.collect { |val, i|
@@ -105,8 +105,10 @@ server.doWhenBooted({
       var mix    = \mix.kr(mix0);
       var master = \master.kr(master0);
 
-      // Source injected by factory function (file or live)
-      var src = srcFunc.value(bufnum);
+      // Fuente: crossfade archivo↔entrada de placa (conmutable en vivo por OSC /beacon/mode)
+      var fileSrc = PlayBuf.ar(1, bufnum, BufRateScale.kr(bufnum), loop: 1);
+      var liveSrc = SoundIn.ar(0);
+      var src = LinXFade2.ar(fileSrc, liveSrc, srcmode.lag(0.15).linlin(0, 1, -1, 1));
 
       var qCtrls = 12.collect { |i|
         ("q" ++ (i + 1)).asSymbol.kr(defaultRQs[i]).lag(0.05)
@@ -155,8 +157,8 @@ server.doWhenBooted({
   "Server booted (2in/2out @ 48000Hz).".postln;
   server.freeAll;   // clean any prior nodes on re-run
 
-  if (useFile) {
-    // Load source buffer (looping WAV)
+  // Cargar buffer SIEMPRE (PlayBuf existe en ambos modos → permite conmutar a archivo en vivo)
+  if (File.exists(audioFilePath)) {
     "Loading buffer: % ...".format(audioFilePath.basename).postln;
     buf = Buffer.read(server, audioFilePath, action: {
       "  Buffer ready: bufnum=%, % frames, %s".format(
@@ -164,6 +166,10 @@ server.doWhenBooted({
       ).postln;
       cond.unhang;
     });
+    cond.hang;
+  } {
+    "⚠ master no encontrado (%) — arranco con buffer vacío; cargá fuente desde la UI".format(audioFilePath).postln;
+    buf = Buffer.alloc(server, 48000, 1, completionMessage: { cond.unhang });
     cond.hang;
   };
 
@@ -174,25 +180,15 @@ server.doWhenBooted({
   2.0.wait;
   "  Decoder kernel ready (allow ~11ms latency from 512-sample HRIR).".postln;
 
-  // Define the core SynthDef
+  // Define the core SynthDef (única, con fuente conmutable)
   "Defining SynthDef \\% ...".format(defName).postln;
-  if (useFile) {
-    makeBeaconDef.value(defName, { |bufnum|
-      PlayBuf.ar(1, bufnum, BufRateScale.kr(bufnum), loop: 1)
-    });
-  } {
-    makeBeaconDef.value(defName, { |bufnum| SoundIn.ar(0) });
-  };
+  makeBeaconDef.value(defName);
 
   server.sync;
   "SynthDef \\% added.".format(defName).postln;
 
-  // Instantiate
-  if (useFile) {
-    synth = Synth(defName, [\bufnum, buf.bufnum]);
-  } {
-    synth = Synth(defName);
-  };
+  // Instantiate — srcmode inicial según el flag de arranque (--file → 0, default/--live → 1)
+  synth = Synth(defName, [\bufnum, buf.bufnum, \srcmode, if (useFile, 0, 1)]);
   "Synth active: nodeID=%  (headphones required for binaural)".format(synth.nodeID).postln;
 
   // OSCdefs: 13*3 band + 12 q + 13 solo + mix + master = 66 total
@@ -280,7 +276,34 @@ server.doWhenBooted({
     }, '/beacon/reset')
   );
 
-  "OSCdefs registered: 39 band + 12 q + 13 solo + mix + master + record + reset (69 total).".postln;
+  // Source-file control (aporte BEACON-sound): cambia el WAV fuente EN VIVO (solo modo file).
+  // La SynthDef ya lee \bufnum como arg → leemos un buffer nuevo y lo seteamos; liberamos el viejo.
+  oscdefs = oscdefs.add(
+    OSCdef(\beacon_source_file, { |msg|
+      var path = msg[1].asString;
+      ("[SOURCE] cargando: " ++ path).postln;
+      Buffer.read(server, path, action: { |newBuf|
+        var oldBuf = buf;
+        synth.set(\bufnum, newBuf.bufnum);
+        synth.set(\srcmode, 0);   // cargar un archivo conmuta a modo archivo
+        buf = newBuf;
+        if (oldBuf.notNil) { oldBuf.free };
+        ("[SOURCE] reproduciendo: " ++ PathName(path).fileName
+          ++ " (" ++ newBuf.duration.round(0.1) ++ "s)").postln;
+      });
+    }, '/beacon/source/file')
+  );
+
+  // Modo de fuente: 0 = archivo, 1 = entrada de placa (SoundIn.ar(0))
+  oscdefs = oscdefs.add(
+    OSCdef(\beacon_mode, { |msg|
+      var m = msg[1].asFloat;
+      synth.set(\srcmode, m);
+      ("[MODE] " ++ if (m > 0.5, "ENTRADA EN VIVO (placa)", "ARCHIVO")).postln;
+    }, '/beacon/mode')
+  );
+
+  "OSCdefs registered: bands + q + solo + mix + master + record + reset + source + mode.".postln;
 
   // Cleanup hooks
   ServerQuit.add({

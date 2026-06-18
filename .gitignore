@@ -6,3 +6,6 @@ __pycache__/
 *.mp3
 configs/*.json
 !configs/version_1.json
+audio/
+venv/
+.beacon_local.scd
