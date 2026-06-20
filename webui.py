@@ -853,9 +853,10 @@ HTML = """<!DOCTYPE html>
             for(let i=1;i<=13;i++){ const g=spVal('gain'+i),a=spVal('az'+i),d=spVal('dist'+i);
                 const p=azDistToXY(a,d); base.push({i:i,g:g,x:p[0],y:p[1],rr:5+(g/3)*12}); }
             const used={}, nodes=[];
-            for(let k=0;k<base.length;k++){ const bk=base[k]; if(used[bk.i])continue;
+            const dragId=spDragging?selectedBand:0;   // el nodo en arrastre NO se agrupa: se mueve solo; el declutter recién al soltar
+            for(let k=0;k<base.length;k++){ const bk=base[k]; if(used[bk.i]||bk.i===dragId)continue;
                 const cl=[bk]; used[bk.i]=true;
-                for(let j=k+1;j<base.length;j++){ const bj=base[j]; if(used[bj.i])continue;
+                for(let j=k+1;j<base.length;j++){ const bj=base[j]; if(used[bj.i]||bj.i===dragId)continue;
                     if(Math.hypot(bk.x-bj.x,bk.y-bj.y)<13){ cl.push(bj); used[bj.i]=true; } }
                 if(cl.length===1){ nodes.push(Object.assign({},bk,{dx:bk.x,dy:bk.y,fan:false})); }
                 else if(cl.length===2){
@@ -874,6 +875,7 @@ HTML = """<!DOCTYPE html>
                         nodes.push(Object.assign({},n,{dx:ccx+R*Math.cos(ang),dy:ccy+R*Math.sin(ang),cx0:ccx,cy0:ccy,fan:true})); });
                 }
             }
+            if(dragId){ const bd=base.find(b=>b.i===dragId); if(bd) nodes.push(Object.assign({},bd,{dx:bd.x,dy:bd.y,fan:false})); }  // arrastre: libre, encima
             spNodes=nodes;
         }
         function drawSpatial(){
