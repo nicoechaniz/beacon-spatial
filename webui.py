@@ -783,7 +783,9 @@ HTML = """<!DOCTYPE html>
         async function loadOutputs(){ const sel=document.getElementById('output-select'); if(!sel) return;
             try{ const j=await (await fetch('/list_outputs')).json(); const list=j.outputs||[];
                 sel.innerHTML = '<option value="">—</option>';
-                list.forEach(o=>{ const op=document.createElement('option'); op.value=o.node; op.textContent=o.label; sel.appendChild(op); });
+                list.forEach(o=>{ const op=document.createElement('option'); op.value=o.node; op.textContent=o.label;
+                    if(o.node===j.current) op.selected=true;   // preseleccionar la salida activa
+                    sel.appendChild(op); });
             }catch(e){}
         }
         function setOutput(node){ if(!node) return; const st=document.getElementById('source-status');
@@ -2203,6 +2205,25 @@ def _out_label(node):
     lbl = node.split(".")[-1].replace("__sink", "").replace("_", " ").strip()
     return lbl or node
 
+def _current_output():
+    # a qué nodo está conectado SuperCollider:out_1 (parse de `pw-link -l`)
+    r = _pwlink("-l")
+    if not r:
+        return ""
+    cur = None
+    for raw in r.stdout.splitlines():
+        if not raw.strip():
+            continue
+        if raw[:1].isspace():
+            s = raw.strip()
+            if cur == "SuperCollider:out_1" and "|->" in s:
+                target = s.split("|->", 1)[1].strip()
+                if ":" in target:
+                    return target.rsplit(":", 1)[0]
+        else:
+            cur = raw.strip()
+    return ""
+
 @app.route("/list_outputs")
 def list_outputs():
     outs = []
@@ -2211,7 +2232,7 @@ def list_outputs():
         if lbl and len(ports) >= 2:
             outs.append({"node": node, "label": lbl})
     outs.sort(key=lambda o: o["label"])
-    return jsonify({"ok": True, "outputs": outs})
+    return jsonify({"ok": True, "outputs": outs, "current": _current_output()})
 
 @app.route("/output", methods=["POST"])
 def set_output():
