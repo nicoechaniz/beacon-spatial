@@ -110,8 +110,6 @@ server.doWhenBooted({
       var fileSrc = PlayBuf.ar(1, bufnum, BufRateScale.kr(bufnum), loop: 1);
       var liveSrc = SoundIn.ar(0);
       var src = LinXFade2.ar(fileSrc, liveSrc, srcmode.lag(0.15).linlin(0, 1, -1, 1));
-      // VU de la entrada de placa (alimenta el medidor de la UI en modo "En vivo")
-      SendReply.kr(Impulse.kr(20), '/inlvl', Amplitude.kr(liveSrc, 0.01, 0.2));
 
       var qCtrls = 12.collect { |i|
         ("q" ++ (i + 1)).asSymbol.kr(defaultRQs[i]).lag(0.05)
@@ -152,6 +150,9 @@ server.doWhenBooted({
 
       // Final wet/dry mix + master
       var sig = (wetSig + drySig) * master;
+
+      // VU de la entrada de placa (alimenta el medidor de la UI). Va DESPUÉS de todas las `var`.
+      SendReply.kr(Impulse.kr(20), '/inlvl', Amplitude.kr(liveSrc, 0.01, 0.2));
 
       Out.ar(out, sig);   // 2 channels
     }).add;
