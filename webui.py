@@ -15,7 +15,7 @@ from flask import Flask, render_template_string, request, jsonify
 from pythonosc.udp_client import SimpleUDPClient
 from pythonosc.dispatcher import Dispatcher
 from pythonosc.osc_server import ThreadingOSCUDPServer
-import os, json, glob, threading
+import os, json, glob, threading, subprocess
 
 app = Flask(__name__)
 osc = SimpleUDPClient("127.0.0.1", 57120)
@@ -337,6 +337,13 @@ HTML = """<!DOCTYPE html>
                 </select>
                 <button onclick="loadSources()" title="refrescar lista"
                         class="text-xs px-3 py-1.5 rounded-2xl border border-slate-700 text-slate-400 hover:bg-slate-900 hover:border-cyan-500/40 transition-colors"><i class="fa-solid fa-arrows-rotate"></i></button>
+            </div>
+            <div class="flex items-center gap-2">
+                <span class="control-label"><i class="fa-solid fa-volume-high mr-1"></i>SALIDA</span>
+                <select id="output-select" onchange="setOutput(this.value)" title="dispositivo de salida"
+                        class="bg-slate-950 border border-slate-700 rounded-2xl px-3 py-1.5 text-sm text-slate-300 outline-none min-w-[150px]">
+                    <option value="">—</option>
+                </select>
             </div>
             <span id="source-status" class="text-[10px] text-slate-500 font-mono w-full sm:w-auto sm:ml-2"></span>
         </div>
@@ -772,6 +779,18 @@ HTML = """<!DOCTYPE html>
         }
         window.addEventListener('load', loadSources);
         window.addEventListener('load', () => highlightMode(0));
+        // Salida seleccionable (re-ruteo pw-link en el server)
+        async function loadOutputs(){ const sel=document.getElementById('output-select'); if(!sel) return;
+            try{ const j=await (await fetch('/list_outputs')).json(); const list=j.outputs||[];
+                sel.innerHTML = '<option value="">—</option>';
+                list.forEach(o=>{ const op=document.createElement('option'); op.value=o.node; op.textContent=o.label; sel.appendChild(op); });
+            }catch(e){}
+        }
+        function setOutput(node){ if(!node) return; const st=document.getElementById('source-status');
+            fetch('/output',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({node:node})})
+              .then(r=>r.json()).then(j=>{ if(st) st.textContent = j.ok ? ('salida → '+(j.label||'')) : ('✗ '+(j.error||'')); }).catch(()=>{ if(st) st.textContent='✗ error salida'; });
+        }
+        window.addEventListener('load', loadOutputs);
         // VU de entrada: poll a /level (lo alimenta sclang vía OSC) → barra
         function pollLevel(){
             fetch('/level').then(r=>r.json()).then(j=>{
@@ -2149,6 +2168,64 @@ def list_configs():
 @app.route("/level")
 def level():
     return jsonify({"level": _LATEST["level"]})
+
+# ---- Salida seleccionable: re-rutea SuperCollider:out_1/2 al sink elegido vía pw-link ----
+def _pwlink(*args, timeout=4):
+    try:
+        return subprocess.run(["pw-link", *args], capture_output=True, text=True, timeout=timeout)
+    except Exception:
+        return None
+
+def _playback_ports():
+    r = _pwlink("-i")
+    ports = []
+    if r:
+        for line in r.stdout.splitlines():
+            line = line.strip()
+            if ":" in line and "playback" in line.lower():
+                ports.append(line)
+    return ports
+
+def _output_nodes():
+    nodes = {}
+    for p in _playback_ports():
+        nodes.setdefault(p.rsplit(":", 1)[0], []).append(p)
+    return nodes
+
+def _out_label(node):
+    n = node.lower()
+    if "fosi" in n: return "Fosi Audio DS2"
+    if "headphones" in n: return "Auriculares internos"
+    if "hdmi3" in n: return "HDMI 3"
+    if "hdmi2" in n: return "HDMI 2"
+    if "hdmi1" in n: return "HDMI 1"
+    if "midi" in n or "bridge" in n: return None  # excluir
+    lbl = node.split(".")[-1].replace("__sink", "").replace("_", " ").strip()
+    return lbl or node
+
+@app.route("/list_outputs")
+def list_outputs():
+    outs = []
+    for node, ports in _output_nodes().items():
+        lbl = _out_label(node)
+        if lbl and len(ports) >= 2:
+            outs.append({"node": node, "label": lbl})
+    outs.sort(key=lambda o: o["label"])
+    return jsonify({"ok": True, "outputs": outs})
+
+@app.route("/output", methods=["POST"])
+def set_output():
+    node = ((request.get_json() or {}).get("node") or "").strip()
+    ports = sorted(_output_nodes().get(node, []))
+    if len(ports) < 2:
+        return jsonify({"ok": False, "error": "sin puertos"}), 400
+    # desconectar la salida de SuperCollider de todos los playbacks, luego conectar al elegido
+    for src in ("SuperCollider:out_1", "SuperCollider:out_2"):
+        for p in _playback_ports():
+            _pwlink("-d", src, p)
+    _pwlink("SuperCollider:out_1", ports[0])
+    _pwlink("SuperCollider:out_2", ports[1])
+    return jsonify({"ok": True, "node": node, "label": _out_label(node)})
 
 @app.route("/list_sources")
 def list_sources():

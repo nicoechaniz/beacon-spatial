@@ -35,6 +35,7 @@
 
 (
 var buf, decoder, synth, oscdefs;
+var flask = NetAddr("127.0.0.1", 57121);   // reenvío del VU de entrada hacia la web UI (Flask OSC-in)
 var audioFilePath = ("BEACON_AUDIO".getenv ? "/home/nicolas/Projects/beacon-spatial/harmonic_beacon_2026_05_13_session.wav");
 var useFile = "BEACON_SOURCE".getenv == "file";
 var defName = if (useFile) { \beacon_file } { \beacon_live };
@@ -109,6 +110,8 @@ server.doWhenBooted({
       var fileSrc = PlayBuf.ar(1, bufnum, BufRateScale.kr(bufnum), loop: 1);
       var liveSrc = SoundIn.ar(0);
       var src = LinXFade2.ar(fileSrc, liveSrc, srcmode.lag(0.15).linlin(0, 1, -1, 1));
+      // VU de la entrada de placa (alimenta el medidor de la UI en modo "En vivo")
+      SendReply.kr(Impulse.kr(20), '/inlvl', Amplitude.kr(liveSrc, 0.01, 0.2));
 
       var qCtrls = 12.collect { |i|
         ("q" ++ (i + 1)).asSymbol.kr(defaultRQs[i]).lag(0.05)
@@ -292,6 +295,11 @@ server.doWhenBooted({
           ++ " (" ++ newBuf.duration.round(0.1) ++ "s)").postln;
       });
     }, '/beacon/source/file')
+  );
+
+  // Reenvío del VU de entrada (SendReply '/inlvl' [nodeID, replyID, amp]) → Flask:57121
+  oscdefs = oscdefs.add(
+    OSCdef(\beacon_inlvl, { |msg| flask.sendMsg('/inlevel', msg[3]) }, '/inlvl')
   );
 
   // Modo de fuente: 0 = archivo, 1 = entrada de placa (SoundIn.ar(0))
