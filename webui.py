@@ -13,15 +13,39 @@ Usage:
 
 from flask import Flask, render_template_string, request, jsonify
 from pythonosc.udp_client import SimpleUDPClient
-import os, json, glob
+from pythonosc.dispatcher import Dispatcher
+from pythonosc.osc_server import ThreadingOSCUDPServer
+import os, json, glob, threading, subprocess
 
 app = Flask(__name__)
 osc = SimpleUDPClient("127.0.0.1", 57120)
 # Second OSC target: PD replica sclang on port 9001 (when running)
 osc_pd = SimpleUDPClient("127.0.0.1", 9001)
 
-CONFIG_DIR = os.path.expanduser("~/Projects/beacon-spatial/configs")
+# OSC-in: recibe el VU de entrada que reenvía sclang (/inlevel) → lo expone en /level para el browser
+_LATEST = {"level": 0.0}
+def _on_inlevel(addr, *args):
+    try:
+        _LATEST["level"] = float(args[-1])
+    except (TypeError, ValueError):
+        pass
+def _start_osc_in():
+    disp = Dispatcher()
+    disp.map("/inlevel", _on_inlevel)
+    try:
+        srv = ThreadingOSCUDPServer(("127.0.0.1", 57121), disp)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+    except OSError:
+        pass  # puerto ocupado (otra instancia, p.ej. un screenshot) — sin VU, no crítico
+_start_osc_in()
+
+# configs del repo (no la ruta absoluta de Nicolás): junto a este webui.py, override por env.
+CONFIG_DIR = os.path.expanduser(os.environ.get("BEACON_CONFIG_DIR")
+             or os.path.join(os.path.dirname(os.path.abspath(__file__)), "configs"))
 os.makedirs(CONFIG_DIR, exist_ok=True)
+
+# Carpeta de fuentes WAV seleccionables desde la UI (aporte BEACON-sound).
+SOURCES_DIR = os.path.expanduser(os.environ.get("BEACON_SOURCES_DIR", "~/REPOS/beacon-spatial/audio"))
 
 BANDS = [
     {"freq": 40,   "color": "#c0392b", "default_gain": 1.2, "default_az": 180, "default_dist": 2.0, "default_q": 1.0,   "default_solo": 0},
@@ -46,39 +70,102 @@ HTML = """<!DOCTYPE html>
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
     <title>Harmonic Beacon • Spatializer</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      // Pátina de marca: remapea el acento (cyan→amatista) y las fuentes en TODA la UI
+      // sin tocar las clases inline. Tinte violáceo, ritual + tecnología sobria (VISION.md).
+      tailwind.config = { theme: { extend: {
+        colors: {
+          cyan:    { 300:'#c3aefc', 400:'#a98bff', 500:'#8b6cf0', 600:'#7654e4', 950:'#140e28' },
+          emerald: { 300:'#8fdcc2', 400:'#5fc7a6', 500:'#329e7f', 950:'#0c241e' },
+          amber:   { 300:'#e0bd7e', 400:'#cda85e', 500:'#b88e3f' },
+          violet:  { 300:'#d6c3ff', 400:'#bfa3ff' }
+        },
+        fontFamily: {
+          sans: ['Hanken Grotesk','system-ui','sans-serif'],
+          mono: ['Spline Sans Mono','ui-monospace','monospace'],
+          display: ['Fraunces','serif']
+        }
+      } } };
+    </script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&amp;family=Space+Grotesk:wght@500;600&amp;display=swap');
-        
+        @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&amp;family=Hanken+Grotesk:wght@300;400;500;600;700&amp;family=Spline+Sans+Mono:wght@400;500&amp;display=swap');
+
         :root {
-            --accent: #22d3ee;
+            --accent: #a98bff;          /* amatista, más saturado */
+            --accent-soft: rgba(169,139,255,0.15);
+            --gold: #cda85e;            /* realce ritual, uso escaso */
+            --bg-0: #070510;
+            --bg-1: #0c0918;
+            --bg-2: #110d1f;
+            --line: #211a36;
+            --line-soft: rgba(169,139,255,0.09);
+            --text: #e9e4f2;
+            --muted: #837a96;
+            --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
         }
-        
+
         body {
-            font-family: 'Inter', system_ui, sans-serif;
+            font-family: 'Hanken Grotesk', system-ui, sans-serif;
+            color: var(--text);
+            background-color: var(--bg-0);
+            background-image:
+                radial-gradient(120% 80% at 50% -12%, rgba(98,68,196,0.16), transparent 58%),
+                radial-gradient(90% 60% at 100% 0%, rgba(190,154,84,0.045), transparent 55%),
+                linear-gradient(180deg, #08060f 0%, #050409 100%);
+            background-attachment: fixed;
+            -webkit-font-smoothing: antialiased;
         }
-        
+        /* grano sutil sobre toda la página */
+        body::before {
+            content: ""; position: fixed; inset: 0; z-index: 0; pointer-events: none;
+            opacity: 0.035; mix-blend-mode: overlay;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+        }
+        body > * { position: relative; z-index: 1; }
+
         .font-display {
-            font-family: 'Space Grotesk', 'Inter', sans-serif;
+            font-family: 'Fraunces', 'Georgia', serif;
             font-weight: 600;
-            letter-spacing: -0.02em;
+            font-optical-sizing: auto;
+            letter-spacing: 0;
         }
 
         .section {
-            background: #0f1117;
-            border: 1px solid #1f2937;
+            background: linear-gradient(180deg, rgba(18,14,30,0.82), rgba(10,8,18,0.82));
+            border: 1px solid var(--line);
+            backdrop-filter: blur(7px);
         }
 
         .band-card {
-            background: #0f1117;
-            border: 1px solid #1f2937;
-            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            background: linear-gradient(180deg, rgba(16,12,26,0.92), rgba(9,7,15,0.92));
+            border: 1px solid var(--line);
+            border-radius: 18px;
+            transition: transform 0.35s var(--ease), border-color 0.35s var(--ease), box-shadow 0.35s var(--ease);
+            /* revelado escalonado al cargar */
+            opacity: 0;
+            animation: cardIn 0.6s var(--ease) forwards;
         }
-        
+
         .band-card:hover {
-            border-color: #374151;
-            transform: translateY(-1px);
+            border-color: var(--accent);
+            transform: translateY(-3px);
+            box-shadow: 0 10px 30px -12px rgba(125,91,230,0.45);
         }
+
+        @keyframes cardIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+        #band-grid > .band-card:nth-child(1){animation-delay:.02s} #band-grid > .band-card:nth-child(2){animation-delay:.05s}
+        #band-grid > .band-card:nth-child(3){animation-delay:.08s} #band-grid > .band-card:nth-child(4){animation-delay:.11s}
+        #band-grid > .band-card:nth-child(5){animation-delay:.14s} #band-grid > .band-card:nth-child(6){animation-delay:.17s}
+        #band-grid > .band-card:nth-child(7){animation-delay:.20s} #band-grid > .band-card:nth-child(8){animation-delay:.23s}
+        #band-grid > .band-card:nth-child(9){animation-delay:.26s} #band-grid > .band-card:nth-child(10){animation-delay:.29s}
+        #band-grid > .band-card:nth-child(11){animation-delay:.32s} #band-grid > .band-card:nth-child(12){animation-delay:.35s}
+        #band-grid > .band-card:nth-child(13){animation-delay:.38s}
+        .tab-panel { animation: panelIn 0.4s var(--ease) both; }
+        @keyframes panelIn { from { opacity:0; transform: translateY(6px) } to { opacity:1; transform:none } }
 
         .slider {
             accent-color: #22d3ee;
@@ -123,10 +210,10 @@ HTML = """<!DOCTYPE html>
         }
 
         .control-label {
-            font-size: 0.625rem;
-            letter-spacing: 0.5px;
+            font-size: 0.66rem;
+            letter-spacing: 0.6px;
             font-weight: 600;
-            color: #64748b;
+            color: #948daa;
         }
 
         .big-value {
@@ -136,26 +223,33 @@ HTML = """<!DOCTYPE html>
         }
 
         .modern-slider {
-            height: 6px;
-            background: #1f2937;
+            height: 5px;
+            background: linear-gradient(90deg, var(--accent-soft), rgba(255,255,255,0.04));
             border-radius: 999px;
             outline: none;
         }
 
         .modern-slider::-webkit-slider-thumb {
             -webkit-appearance: none;
-            height: 16px;
-            width: 16px;
-            background: #22d3ee;
+            height: 15px;
+            width: 15px;
+            background: var(--accent);
             border-radius: 999px;
-            box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.2);
+            box-shadow: 0 0 0 3px var(--accent-soft), 0 0 10px -1px rgba(169,139,255,0.5);
             cursor: pointer;
-            transition: all 0.1s ease;
+            transition: box-shadow 0.2s var(--ease), transform 0.15s var(--ease);
         }
-
+        .modern-slider::-moz-range-thumb {
+            height: 15px; width: 15px; border: none;
+            background: var(--accent); border-radius: 999px;
+            box-shadow: 0 0 0 3px var(--accent-soft);
+            cursor: pointer;
+        }
         .modern-slider::-webkit-slider-thumb:hover {
-            box-shadow: 0 0 0 5px rgba(34, 211, 238, 0.35);
+            box-shadow: 0 0 0 5px var(--accent-soft), 0 0 16px 0 rgba(169,139,255,0.6);
+            transform: scale(1.12);
         }
+        .modern-slider:active::-webkit-slider-thumb { transform: scale(0.96); }
 
         .band-header {
             font-size: 0.7rem;
@@ -175,7 +269,7 @@ HTML = """<!DOCTYPE html>
         }
     </style>
 </head>
-<body class="bg-[#0a0c12] text-slate-200">
+<body class="text-slate-200">
     <!-- Top Bar -->
     <div class="sticky top-0 z-50 bg-[#0a0c12]/95 backdrop-blur border-b border-slate-800">
         <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
@@ -185,8 +279,8 @@ HTML = """<!DOCTYPE html>
                         <i class="fa-solid fa-satellite text-white text-lg"></i>
                     </div>
                     <div>
-                        <div class="font-display text-2xl font-semibold tracking-tighter">Beacon</div>
-                        <div class="text-[10px] text-slate-500 -mt-1">HARMONIC SPATIALIZER</div>
+                        <div class="font-display text-3xl leading-none" style="letter-spacing:0.01em;">Beacon</div>
+                        <div class="text-[9px] text-slate-500 mt-0.5" style="letter-spacing:0.28em;">HARMONIC SPATIALIZER</div>
                     </div>
                 </div>
                 <div class="hidden sm:block text-xs px-2.5 py-1 rounded-full bg-slate-900 border border-slate-800 text-slate-400">
@@ -194,36 +288,9 @@ HTML = """<!DOCTYPE html>
                 </div>
             </div>
 
-            <!-- Global Sensor Controls -->
-            <div class="flex items-center gap-x-2">
-                <!-- Influence -->
-                <div class="flex items-center gap-x-2 bg-slate-900 border border-slate-800 rounded-2xl px-3 py-1.5">
-                    <div class="flex items-center gap-x-1.5">
-                        <i class="fa-solid fa-waveform-lines text-cyan-400 text-sm"></i>
-                        <span class="text-xs font-medium text-slate-400">INFLUENCE</span>
-                    </div>
-                    <input type="range" id="sensor-influence" 
-                           class="w-24 accent-cyan-400" 
-                           min="0" max="1" step="0.01" value="0.65"
-                           oninput="updateSensorInfluence(this.value)">
-                    <span id="influence-val" class="font-mono text-sm font-semibold w-8 text-right text-cyan-300">0.65</span>
-                </div>
-
-                <!-- Live Toggle -->
-                <button onclick="toggleLiveSensorsUI()"
-                        id="live-btn"
-                        class="flex items-center gap-x-2 px-4 py-1.5 rounded-2xl text-sm font-medium border transition-all active:scale-[0.985]
-                               bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20">
-                    <i class="fa-solid fa-play text-xs"></i>
-                    <span id="live-text" class="font-semibold">LIVE</span>
-                </button>
-
-                <!-- Permissions -->
-                <button onclick="requestSensorPermissions()"
-                        class="flex items-center gap-x-2 px-3 py-1.5 text-xs font-medium rounded-2xl border border-slate-700 hover:bg-slate-900 transition-colors">
-                    <i class="fa-solid fa-mobile-screen-button"></i>
-                    <span class="hidden sm:inline">Permissions</span>
-                </button>
+            <!-- (Los controles de sensores —Influence/LIVE/Permissions— viven en la pestaña Sensores) -->
+            <div class="flex items-center gap-x-2 text-[10px] text-slate-500 font-mono">
+                <i class="fa-solid fa-circle text-emerald-500/70 text-[7px]"></i><span>consola</span>
             </div>
         </div>
     </div>
@@ -232,32 +299,59 @@ HTML = """<!DOCTYPE html>
 
         <!-- Tabs (Manual / Sensors / Presets) -->
         <div class="flex items-center gap-2 mb-4" id="tab-bar">
+            <button data-tab-target="spatial" class="tab-btn px-4 py-2 rounded-2xl text-sm font-medium border border-slate-700 bg-slate-900 text-slate-400 hover:text-slate-200">
+                <i class="fa-solid fa-circle-nodes text-xs mr-1.5"></i>Espacial
+            </button>
             <button data-tab-target="manual" class="tab-btn px-4 py-2 rounded-2xl text-sm font-medium border border-cyan-500/40 bg-cyan-500/10 text-cyan-300">
                 <i class="fa-solid fa-sliders text-xs mr-1.5"></i>Manual
-            </button>
-            <button data-tab-target="sensors" class="tab-btn px-4 py-2 rounded-2xl text-sm font-medium border border-slate-700 bg-slate-900 text-slate-400 hover:text-slate-200">
-                <i class="fa-solid fa-mobile-screen text-xs mr-1.5"></i>Sensors
             </button>
             <button data-tab-target="presets" class="tab-btn px-4 py-2 rounded-2xl text-sm font-medium border border-slate-700 bg-slate-900 text-slate-400 hover:text-slate-200">
                 <i class="fa-solid fa-folder-open text-xs mr-1.5"></i>Presets
             </button>
+            <button data-tab-target="sensors" class="tab-btn px-4 py-2 rounded-2xl text-sm font-medium border border-slate-700 bg-slate-900 text-slate-400 hover:text-slate-200 opacity-70">
+                <i class="fa-solid fa-mobile-screen text-xs mr-1.5"></i>Sensores
+            </button>
         </div>
 
-        <!-- Status badges (always visible) -->
-        <div class="flex flex-wrap items-center gap-2 mb-4">
-            <div id="sensor-status"
-                 class="text-xs px-3 py-1 bg-slate-900 border border-slate-800 rounded-full text-slate-400 font-medium flex items-center gap-1.5">
-                <i class="fa-solid fa-circle text-emerald-400 text-[8px]"></i>
-                <span>Ready</span>
-            </div>
-            <div id="config-status" class="text-xs px-3 py-1 bg-slate-900 border border-slate-800 rounded-full text-slate-400 font-medium">
-                Presets ready
+        <!-- FUENTE / transporte: QUÉ suena (el engine reproduce en loop; cambiar = recarga en vivo) -->
+        <div class="section rounded-2xl px-4 py-3 mb-5 flex items-center gap-4">
+            <span class="w-10 h-10 rounded-xl border border-slate-700 flex items-center justify-center text-cyan-300 shrink-0 text-lg"><i class="fa-solid fa-circle-play"></i></span>
+            <div class="flex-1 min-w-0 flex flex-col gap-2.5">
+                <!-- fila FUENTE -->
+                <div class="flex items-center gap-3 flex-wrap">
+                    <span class="control-label w-12 shrink-0">FUENTE</span>
+                    <div class="flex rounded-lg border border-slate-700 overflow-hidden text-xs shrink-0">
+                        <button id="mode-file" onclick="setMode(0)" class="px-3 py-1 font-medium transition-colors">Archivo</button>
+                        <button id="mode-live" onclick="setMode(1)" class="px-3 py-1 font-medium border-l border-slate-700 transition-colors">En vivo</button>
+                    </div>
+                    <div class="flex items-center gap-1.5 shrink-0" title="nivel de entrada de placa">
+                        <i class="fa-solid fa-microphone text-[10px] text-slate-500"></i>
+                        <div class="w-16 h-1.5 rounded-full bg-slate-800 overflow-hidden"><div id="in-vu" class="h-full transition-[width] duration-75" style="width:0%;background:#475569"></div></div>
+                    </div>
+                    <span id="source-now" class="font-mono text-sm text-slate-200 truncate flex-1 min-w-[80px]">—</span>
+                    <select id="source-select" onchange="onSourceChange(this.value)"
+                            class="bg-slate-950 border border-slate-700 rounded-xl px-3 py-1.5 text-sm text-slate-300 min-w-[210px] outline-none shrink-0">
+                        <option value="">— elegí un WAV —</option>
+                    </select>
+                    <button onclick="onSourceRefresh()" title="refrescar lista"
+                            class="w-8 h-8 rounded-xl border border-slate-700 text-slate-400 hover:bg-slate-900 hover:border-cyan-500/40 transition-colors shrink-0"><i class="fa-solid fa-arrows-rotate text-xs"></i></button>
+                </div>
+                <!-- fila SALIDA -->
+                <div class="flex items-center gap-3 flex-wrap">
+                    <span class="control-label w-12 shrink-0">SALIDA</span>
+                    <i class="fa-solid fa-volume-high text-[11px] text-slate-500 shrink-0"></i>
+                    <select id="output-select" onchange="setOutput(this.value)" title="dispositivo de salida"
+                            class="bg-slate-950 border border-slate-700 rounded-xl px-3 py-1.5 text-sm text-slate-300 outline-none min-w-[210px] shrink-0">
+                        <option value="">—</option>
+                    </select>
+                    <span id="source-status" class="text-[10px] text-slate-500 font-mono ml-auto truncate"></span>
+                </div>
             </div>
         </div>
 
         <!-- Spectrum Visual (always visible) -->
         <div class="mb-5">
-            <div class="flex items-end gap-1 h-16 px-1 bg-slate-950/70 border border-slate-800 rounded-3xl p-2" id="spectrum">
+            <div class="flex items-end gap-1 h-[118px] px-1 bg-slate-950/70 border border-slate-800 rounded-3xl p-2" id="spectrum">
                 {% for band in bands %}
                 <div class="flex-1 flex flex-col items-center">
                     <div class="spectrum-bar w-full rounded-t-full transition-all duration-75"
@@ -268,6 +362,45 @@ HTML = """<!DOCTYPE html>
                 {% endfor %}
             </div>
         </div>
+
+        <!-- ============= TAB: ESPACIAL ============= -->
+        <section data-tab="spatial" class="tab-panel" hidden>
+            <div class="flex items-center justify-between mb-2 px-1">
+                <div class="flex items-center gap-x-2">
+                    <span class="font-semibold tracking-tight text-lg">Campo espacial</span>
+                    <span class="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-500">arrastrá los armónicos</span>
+                </div>
+                <span class="text-[10px] text-slate-500 font-mono">ángulo = azimut · radio = distancia · tamaño = gain</span>
+            </div>
+            <div class="section rounded-3xl p-5 border border-slate-800 flex flex-col lg:flex-row gap-6 items-center justify-center">
+                <div class="flex flex-col items-center">
+                    <canvas id="spatial-canvas" class="touch-none" style="cursor:default;"></canvas>
+                    <div class="flex items-center gap-2 mt-3 text-xs text-slate-400">
+                        <button onclick="spZoomBy(1/1.2)" title="alejar" class="w-7 h-7 rounded-lg border border-slate-700 hover:bg-slate-800 hover:border-cyan-500/40 transition-colors"><i class="fa-solid fa-minus text-[10px]"></i></button>
+                        <span id="sp-zoom" class="font-mono w-12 text-center text-slate-300">100%</span>
+                        <button onclick="spZoomBy(1.2)" title="acercar" class="w-7 h-7 rounded-lg border border-slate-700 hover:bg-slate-800 hover:border-cyan-500/40 transition-colors"><i class="fa-solid fa-plus text-[10px]"></i></button>
+                        <button onclick="spResetView()" title="centrar" class="ml-1 w-7 h-7 rounded-lg border border-slate-700 hover:bg-slate-800 hover:border-cyan-500/40 transition-colors"><i class="fa-solid fa-arrows-to-dot text-[10px]"></i></button>
+                    </div>
+                    <div class="text-[10px] text-slate-500 mt-2">clic = seleccionar · arrastrar = mover · rueda = zoom · arrastrar vacío = desplazar</div>
+                </div>
+                <!-- Panel del canal seleccionado -->
+                <div class="w-full lg:w-48 shrink-0 rounded-2xl border border-slate-800 bg-[#0d0a18]/60 p-4 flex flex-col gap-3">
+                    <div class="control-label">CANAL SELECCIONADO</div>
+                    <div id="sel-freq" class="font-mono text-2xl leading-none" style="color:#6b6480">—</div>
+                    <div class="border-t border-slate-800/80 -mx-4"></div>
+                    <div class="flex gap-2">
+                        <button id="sel-solo" onclick="toggleSelSolo()" class="flex-1 py-1.5 rounded-xl border border-slate-700 text-xs font-bold text-slate-400 hover:bg-slate-800 transition-all">SOLO</button>
+                        <button id="sel-mute" onclick="toggleSelMute()" class="flex-1 py-1.5 rounded-xl border border-slate-700 text-xs font-bold text-slate-400 hover:bg-slate-800 transition-all">MUTE</button>
+                    </div>
+                    <div class="flex flex-col items-center gap-2 pt-2 mt-auto">
+                        <span class="control-label self-start">GANANCIA</span>
+                        <input id="sel-gain" type="range" min="0" max="3" step="0.05" value="1" oninput="setSelGain(this.value)"
+                               class="modern-slider" style="writing-mode: vertical-lr; direction: rtl; width:6px; height:168px;">
+                        <span id="sel-gain-val" class="font-mono text-sm text-cyan-300">—</span>
+                    </div>
+                </div>
+            </div>
+        </section>
 
         <!-- ============= TAB: MANUAL ============= -->
         <section data-tab="manual" class="tab-panel">
@@ -290,8 +423,12 @@ HTML = """<!DOCTYPE html>
                         <div>
                             <div class="band-header font-mono" style="color: {{ band.color }};">{{ band.freq }} Hz</div>
                         </div>
-                        <button onclick="toggleSolo({{ loop.index }}, this)" id="s{{ loop.index }}"
-                                class="solo-btn text-[9px] px-2 py-px border border-slate-700 hover:border-slate-600 rounded-lg font-bold text-slate-400 active:bg-white active:text-black transition-all">SOLO</button>
+                        <div class="flex gap-1">
+                            <button onclick="toggleMute({{ loop.index }}, this)" id="m{{ loop.index }}"
+                                    class="text-[9px] px-2 py-px border border-slate-700 hover:border-slate-600 rounded-lg font-bold text-slate-400 transition-all">MUTE</button>
+                            <button onclick="toggleSolo({{ loop.index }}, this)" id="s{{ loop.index }}"
+                                    class="solo-btn text-[9px] px-2 py-px border border-slate-700 hover:border-slate-600 rounded-lg font-bold text-slate-400 active:bg-white active:text-black transition-all">SOLO</button>
+                        </div>
                     </div>
 
                     <!-- Gain -->
@@ -322,7 +459,7 @@ HTML = """<!DOCTYPE html>
                             <span class="control-label">DISTANCE</span>
                             <span id="d{{ loop.index }}" class="value-display font-mono text-emerald-300 text-sm">{{ band.default_dist }}</span>
                         </div>
-                        <input type="range" min="0" max="10" step="0.1" value="{{ band.default_dist }}" id="dist{{ loop.index }}"
+                        <input type="range" min="0" max="10" step="0.01" value="{{ band.default_dist }}" id="dist{{ loop.index }}"
                                class="modern-slider w-full accent-emerald-400"
                                oninput="send('dist', {{ loop.index }}, this.value); show(this, 'd{{ loop.index }}')">
                     </div>
@@ -348,12 +485,30 @@ HTML = """<!DOCTYPE html>
         <section data-tab="sensors" class="tab-panel" hidden>
             <div class="flex items-center justify-between mb-3 px-1">
                 <div class="flex items-center gap-x-2">
-                    <span class="font-semibold tracking-tight text-lg">Sensor Interpreter</span>
-                    <span class="px-2 py-0.5 text-[10px] bg-teal-900/50 text-teal-400 rounded-full text-center font-medium">Phone → Parameters</span>
+                    <span class="font-semibold tracking-tight text-lg">Sensores</span>
+                    <span class="px-2 py-0.5 text-[10px] bg-teal-900/50 text-teal-400 rounded-full text-center font-medium">teléfono → parámetros (opcional)</span>
                 </div>
                 <div class="text-[10px] text-slate-500 font-mono" id="sensor-tab-hint">
-                    tap LIVE to start
+                    modulación en vivo con el teléfono
                 </div>
+            </div>
+
+            <!-- Controles de la capa de sensores (reubicados desde el top bar) -->
+            <div class="section rounded-2xl p-3 mb-3 flex items-center gap-3 flex-wrap">
+                <button onclick="toggleLiveSensorsUI()" id="live-btn"
+                        class="flex items-center gap-x-2 px-4 py-1.5 rounded-2xl text-sm font-medium border transition-all active:scale-[0.985] bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20">
+                    <i class="fa-solid fa-play text-xs"></i><span id="live-text" class="font-semibold">LIVE</span>
+                </button>
+                <div class="flex items-center gap-x-2 bg-slate-950 border border-slate-700 rounded-2xl px-3 py-1.5">
+                    <span class="control-label">INFLUENCE</span>
+                    <input type="range" id="sensor-influence" class="w-28 accent-cyan-400" min="0" max="1" step="0.01" value="0.65" oninput="updateSensorInfluence(this.value)">
+                    <span id="influence-val" class="font-mono text-sm text-cyan-300 w-8 text-right">0.65</span>
+                </div>
+                <button onclick="requestSensorPermissions()"
+                        class="flex items-center gap-x-2 px-3 py-1.5 text-xs font-medium rounded-2xl border border-slate-700 hover:bg-slate-900 transition-colors">
+                    <i class="fa-solid fa-mobile-screen-button"></i><span>Permisos</span>
+                </button>
+                <span id="sensor-status" class="text-[10px] text-slate-500 font-mono ml-auto">en pausa</span>
             </div>
 
             <div class="section rounded-3xl p-4 border border-slate-800">
@@ -551,7 +706,7 @@ HTML = """<!DOCTYPE html>
     <script>
         // Tailwind script
         function initTailwind() {
-            document.documentElement.style.setProperty('--accent', '#22d3ee');
+            document.documentElement.style.setProperty('--accent', '#a98bff');
         }
 
         // Keep all the original logic + enhance for new UI
@@ -572,6 +727,304 @@ HTML = """<!DOCTYPE html>
             });
         }
         
+        // === SOURCE (WAV) selection (aporte BEACON-sound) ===
+        async function loadSources() {
+            const sel = document.getElementById('source-select');
+            const st = document.getElementById('source-status');
+            const now = document.getElementById('source-now');
+            try {
+                const r = await fetch('/list_sources');
+                const j = await r.json();
+                const list = j.sources || [];
+                sel.innerHTML = '<option value="">— elegí un WAV —</option>';
+                list.forEach(s => {
+                    const o = document.createElement('option');
+                    o.value = s.path; o.textContent = s.name;
+                    if (s.name === j.playing) o.selected = true;   // refleja lo que el engine ya está reproduciendo
+                    sel.appendChild(o);
+                });
+                window.__playingName = j.playing || '—';
+                if (now && beaconMode === 0) now.textContent = j.playing || '—';
+                if (st) st.textContent = list.length + ' archivos · cambiar = recarga en vivo';
+            } catch (e) { if (st) st.textContent = 'error listando fuentes'; }
+        }
+        function selectSource(path) {
+            if (!path) return;
+            const st = document.getElementById('source-status');
+            const now = document.getElementById('source-now');
+            const name = path.split('/').pop();
+            fetch('/source', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({path: path})
+            }).then(r => r.json()).then(j => {
+                if (j.ok) { window.__playingName = name; highlightMode(0);   // cargar un archivo = volver a modo archivo
+                            if (now) now.textContent = name; if (st) st.textContent = '▸ ' + name; }
+                else if (st) st.textContent = '✗ ' + (j.error||'');
+            }).catch(() => { if (st) st.textContent = '✗ error'; });
+        }
+        // Modo de fuente: 0 = archivo (loop del WAV), 1 = entrada de placa (vivo)
+        let beaconMode = 0;
+        function highlightMode(m){ beaconMode = m;
+            const f=document.getElementById('mode-file'), l=document.getElementById('mode-live');
+            if(f&&l){
+                f.classList.toggle('bg-cyan-500/20', m===0); f.classList.toggle('text-cyan-300', m===0); f.classList.toggle('text-slate-400', m!==0);
+                l.classList.toggle('bg-emerald-500/20', m===1); l.classList.toggle('text-emerald-300', m===1); l.classList.toggle('text-slate-400', m!==1);
+            }
+            // el dropdown muestra WAVs (archivo) o entradas de captura (vivo)
+            if(m===1) loadInputs(); else loadSources();
+        }
+        function setMode(m){ highlightMode(m);
+            fetch('/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({address:'/beacon/mode',value:m})}).catch(()=>{});
+        }
+        function onSourceChange(v){ if(beaconMode===1) selectInput(v); else selectSource(v); }
+        function onSourceRefresh(){ if(beaconMode===1) loadInputs(); else loadSources(); }
+        // Modo vivo: entradas de captura
+        async function loadInputs(){ const sel=document.getElementById('source-select'); const now=document.getElementById('source-now'); const st=document.getElementById('source-status'); if(!sel) return;
+            try{ const j=await (await fetch('/list_inputs')).json(); const list=j.inputs||[];
+                sel.innerHTML = '<option value="">— elegí una entrada —</option>';
+                let curLabel='entrada de placa';
+                list.forEach(o=>{ const op=document.createElement('option'); op.value=o.node; op.textContent=o.label;
+                    if(o.node===j.current){ op.selected=true; curLabel=o.label; } sel.appendChild(op); });
+                if(now) now.textContent = curLabel;
+                if(st) st.textContent = list.length + ' entradas · en vivo por la placa';
+            }catch(e){ if(st) st.textContent='error listando entradas'; }
+        }
+        function selectInput(node){ if(!node) return; const st=document.getElementById('source-status'); const now=document.getElementById('source-now');
+            fetch('/input',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({node:node})})
+              .then(r=>r.json()).then(j=>{ if(j.ok){ if(now) now.textContent=j.label||''; if(st) st.textContent='entrada → '+(j.label||''); } else if(st) st.textContent='✗ '+(j.error||''); }).catch(()=>{ if(st) st.textContent='✗ error'; });
+        }
+        window.addEventListener('load', loadSources);
+        window.addEventListener('load', () => highlightMode(0));
+        // Salida seleccionable (re-ruteo pw-link en el server)
+        async function loadOutputs(){ const sel=document.getElementById('output-select'); if(!sel) return;
+            try{ const j=await (await fetch('/list_outputs')).json(); const list=j.outputs||[];
+                sel.innerHTML = '<option value="">—</option>';
+                list.forEach(o=>{ const op=document.createElement('option'); op.value=o.node; op.textContent=o.label;
+                    if(o.node===j.current) op.selected=true;   // preseleccionar la salida activa
+                    sel.appendChild(op); });
+            }catch(e){}
+        }
+        function setOutput(node){ if(!node) return; const st=document.getElementById('source-status');
+            fetch('/output',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({node:node})})
+              .then(r=>r.json()).then(j=>{ if(st) st.textContent = j.ok ? ('salida → '+(j.label||'')) : ('✗ '+(j.error||'')); }).catch(()=>{ if(st) st.textContent='✗ error salida'; });
+        }
+        window.addEventListener('load', loadOutputs);
+        // VU de entrada: poll a /level (lo alimenta sclang vía OSC) → barra
+        function pollLevel(){
+            fetch('/level').then(r=>r.json()).then(j=>{
+                const v=Math.max(0, j.level||0); const el=document.getElementById('in-vu'); if(!el) return;
+                const pct=Math.min(100, Math.round(Math.sqrt(Math.min(v,1))*118));
+                el.style.width=pct+'%';
+                el.style.background = pct>88 ? '#f43f5e' : (pct>4 ? '#34d399' : '#475569');
+            }).catch(()=>{});
+        }
+        setInterval(pollLevel, 100);
+
+        // === Campo espacial — radar HiDPI, nodos con halo, declutter de clusters ===
+        const SP = { size:440, cx:220, cy:220, Rmax:188, Dmax:5, gamma:0.4 };  // gamma<1 = más detalle cerca del centro (más bajo = más exponencial)
+        const bandColors = ["#c0392b","#e67e22","#f1c40f","#2ecc71","#1abc9c","#3498db","#2980b9","#8e44ad","#9b59b6","#e84393","#fd79a8","#a29bfe","#dfe6e9"];
+        const freqLabels = ["40","80","120","160","200","240","480","720","960","1200","1440","1680","1800+"];
+        let spatialActive=false, selectedBand=0, hoverBand=0, spDragging=false, spPanning=false, lastSpSend=0, spNodes=[];
+        let spView={zoom:1,panx:0,pany:0}, panLast=[0,0];
+        let grabPx0=0, grabPy0=0, grabTx0=0, grabTy0=0, spMoved=false;   // grab relativo: clic no altera
+        let mutedState=[0,0,0,0,0,0,0,0,0,0,0,0,0], prevGain=[null,null,null,null,null,null,null,null,null,null,null,null,null];
+
+        function spVal(id){ const e=document.getElementById(id); return e?parseFloat(e.value):0; }
+        function spShade(hex,amt){ const n=parseInt(hex.slice(1),16);
+            const r=Math.max(0,Math.min(255,(n>>16)+amt)), g=Math.max(0,Math.min(255,((n>>8)&255)+amt)), b=Math.max(0,Math.min(255,(n&255)+amt));
+            return 'rgb('+r+','+g+','+b+')'; }
+        // escala radial no-lineal (gamma<1): más detalle cerca del centro
+        function distToR(d){ return Math.pow(Math.min(d/SP.Dmax,1.12), SP.gamma)*SP.Rmax; }
+        function rToDist(r){ return Math.pow(Math.min(r/SP.Rmax,1), 1/SP.gamma)*SP.Dmax; }
+        function azDistToXY(a,d){ const r=distToR(d), th=(-90-a)*Math.PI/180;
+            return [SP.cx+r*Math.cos(th), SP.cy+r*Math.sin(th)]; }
+        function xyToAzDist(mx,my){ const dx=mx-SP.cx, dy=my-SP.cy;
+            let d=rToDist(Math.sqrt(dx*dx+dy*dy)); d=Math.max(0,Math.min(10,d));
+            let a=-90-Math.atan2(dy,dx)*180/Math.PI; while(a>180)a-=360; while(a<-180)a+=360;
+            return [Math.round(a), Math.round(d*100)/100]; }   // paso de distancia fino (0.01) → sin escalones gruesos
+        function spSetupCanvas(){ const c=document.getElementById('spatial-canvas'); if(!c) return;
+            const dpr=window.devicePixelRatio||1;
+            c.style.width=SP.size+'px'; c.style.height=SP.size+'px';
+            c.width=Math.round(SP.size*dpr); c.height=Math.round(SP.size*dpr);
+            c.getContext('2d').setTransform(dpr,0,0,dpr,0,0); }
+        function spComputeNodes(){
+            const base=[];
+            for(let i=1;i<=13;i++){ const g=spVal('gain'+i),a=spVal('az'+i),d=spVal('dist'+i);
+                const p=azDistToXY(a,d); base.push({i:i,g:g,x:p[0],y:p[1],rr:5+(g/3)*12}); }
+            const used={}, nodes=[];
+            const dragId=spDragging?selectedBand:0;   // el nodo en arrastre NO se agrupa: se mueve solo; el declutter recién al soltar
+            for(let k=0;k<base.length;k++){ const bk=base[k]; if(used[bk.i]||bk.i===dragId)continue;
+                const cl=[bk]; used[bk.i]=true;
+                for(let j=k+1;j<base.length;j++){ const bj=base[j]; if(used[bj.i]||bj.i===dragId)continue;
+                    if(Math.hypot(bk.x-bj.x,bk.y-bj.y)<13){ cl.push(bj); used[bj.i]=true; } }
+                if(cl.length===1){ nodes.push(Object.assign({},bk,{dx:bk.x,dy:bk.y,fan:false})); }
+                else if(cl.length===2){
+                    // 2 nodos: NO abanico. Se apilan — el de MÁS ganancia abajo (centro), el de menos arriba y encima.
+                    const ccx=(cl[0].x+cl[1].x)/2, ccy=(cl[0].y+cl[1].y)/2;
+                    const s=cl.slice().sort((a,b)=>b.g-a.g);  // [mayor gain, menor gain]
+                    const big=s[0], small=s[1];
+                    const off=Math.max(big.rr,7);
+                    // big primero (queda abajo), small después (se dibuja encima, corrido hacia arriba)
+                    nodes.push(Object.assign({},big,{dx:ccx,dy:ccy+off*0.18,fan:false}));
+                    nodes.push(Object.assign({},small,{dx:ccx,dy:ccy-off*0.62,fan:false}));
+                }
+                else { // 3+ : abanico CEÑIDO, con punteadas que convergen a un centro claro
+                    const ccx=cl.reduce((s,n)=>s+n.x,0)/cl.length, ccy=cl.reduce((s,n)=>s+n.y,0)/cl.length, R=12+cl.length*2.4;
+                    cl.forEach((n,idx)=>{ const ang=-Math.PI/2+idx/cl.length*2*Math.PI;
+                        nodes.push(Object.assign({},n,{dx:ccx+R*Math.cos(ang),dy:ccy+R*Math.sin(ang),cx0:ccx,cy0:ccy,fan:true})); });
+                }
+            }
+            if(dragId){ const bd=base.find(b=>b.i===dragId); if(bd) nodes.push(Object.assign({},bd,{dx:bd.x,dy:bd.y,fan:false})); }  // arrastre: libre, encima
+            spNodes=nodes;
+        }
+        function drawSpatial(){
+            const c=document.getElementById('spatial-canvas'); if(!c) return;
+            const ctx=c.getContext('2d'); const cx=SP.cx,cy=SP.cy,R=SP.Rmax, TAU=6.28319;
+            const dpr=window.devicePixelRatio||1; ctx.setTransform(dpr,0,0,dpr,0,0);
+            ctx.clearRect(0,0,SP.size,SP.size);
+            ctx.save();
+            ctx.translate(spView.panx, spView.pany);
+            ctx.translate(cx,cy); ctx.scale(spView.zoom, spView.zoom); ctx.translate(-cx,-cy);
+            let bg=ctx.createRadialGradient(cx,cy,0,cx,cy,R);
+            bg.addColorStop(0,'rgba(40,27,72,0.50)'); bg.addColorStop(0.72,'rgba(16,11,28,0.28)'); bg.addColorStop(1,'rgba(8,6,14,0)');
+            ctx.fillStyle=bg; ctx.beginPath(); ctx.arc(cx,cy,R,0,TAU); ctx.fill();
+            ctx.lineWidth=1;
+            [0.25,0.5,1,2,3,4].forEach(dv=>{ const rr=distToR(dv); ctx.strokeStyle='rgba(169,139,255,0.11)';
+                ctx.beginPath(); ctx.arc(cx,cy,rr,0,TAU); ctx.stroke();
+                ctx.fillStyle='rgba(150,140,180,0.4)'; ctx.font='8px "Spline Sans Mono",monospace'; ctx.textAlign='left';
+                ctx.fillText(dv, cx+2, cy-rr-2); });
+            ctx.strokeStyle='rgba(169,139,255,0.06)';
+            for(let dg=0;dg<360;dg+=30){ const th=dg*Math.PI/180; ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(cx+R*Math.cos(th),cy+R*Math.sin(th)); ctx.stroke(); }
+            ctx.fillStyle='rgba(190,180,212,0.55)'; ctx.font='11px "Spline Sans Mono",ui-monospace,monospace';
+            ctx.textAlign='center'; ctx.fillText('frente',cx,cy-R-9); ctx.fillText('atrás',cx,cy+R+19);
+            ctx.textAlign='left'; ctx.fillText('der',cx+R+7,cy+4); ctx.textAlign='right'; ctx.fillText('izq',cx-R-7,cy+4);
+            let lc=ctx.createRadialGradient(cx,cy,0,cx,cy,10); lc.addColorStop(0,'rgba(205,168,94,0.8)'); lc.addColorStop(1,'rgba(205,168,94,0)');
+            ctx.fillStyle=lc; ctx.beginPath(); ctx.arc(cx,cy,10,0,TAU); ctx.fill();
+            ctx.fillStyle='#cda85e'; ctx.beginPath(); ctx.arc(cx,cy,2.6,0,TAU); ctx.fill();
+            spComputeNodes();
+            const anySolo=soloState.some(s=>s);
+            spNodes.forEach(n=>{ if(n.fan){ ctx.strokeStyle='rgba(169,139,255,0.32)'; ctx.lineWidth=1; ctx.setLineDash([1.5,2.5]); ctx.beginPath(); ctx.moveTo(n.cx0,n.cy0); ctx.lineTo(n.dx,n.dy); ctx.stroke(); ctx.setLineDash([]); } });
+            spNodes.forEach(n=>{ if(n.fan){ ctx.fillStyle='rgba(216,206,236,0.85)'; ctx.beginPath(); ctx.arc(n.cx0,n.cy0,2.4,0,TAU); ctx.fill(); } });  // centro claro de convergencia
+            spNodes.forEach(n=>{ const sel=(n.i===selectedBand), hov=(n.i===hoverBand), col=bandColors[n.i-1];
+                ctx.globalAlpha=(anySolo&&!soloState[n.i-1])?0.25:1;
+                ctx.shadowColor=col; ctx.shadowBlur=sel?24:(hov?16:9);
+                const g=ctx.createRadialGradient(n.dx-n.rr*0.3,n.dy-n.rr*0.3,0,n.dx,n.dy,n.rr);
+                g.addColorStop(0,spShade(col,45)); g.addColorStop(1,spShade(col,-36));
+                ctx.fillStyle=g; ctx.beginPath(); ctx.arc(n.dx,n.dy,n.rr,0,TAU); ctx.fill();
+                ctx.shadowBlur=0;
+                ctx.strokeStyle=sel?'#fff':'rgba(255,255,255,0.4)'; ctx.lineWidth=sel?2:1;
+                ctx.beginPath(); ctx.arc(n.dx,n.dy,n.rr,0,TAU); ctx.stroke();
+                ctx.globalAlpha=1;
+            });
+            ctx.restore();
+            const z=document.getElementById('sp-zoom'); if(z) z.textContent=Math.round(spView.zoom*100)+'%';
+            const act=hoverBand||selectedBand;
+            if(act){ const a=spVal('az'+act),d=spVal('dist'+act),g=spVal('gain'+act);
+                ctx.textAlign='left'; ctx.font='13px "Spline Sans Mono",ui-monospace,monospace'; ctx.fillStyle=bandColors[act-1];
+                ctx.fillText(freqLabels[act-1]+' Hz', 12, 22);
+                ctx.fillStyle='rgba(200,193,220,0.7)'; ctx.font='10px "Spline Sans Mono",ui-monospace,monospace';
+                ctx.fillText('az '+Math.round(a)+'°   dist '+d.toFixed(2)+'   gain '+g.toFixed(2), 12, 38);
+            }
+        }
+        function spatialTick(){ if(!spatialActive) return; drawSpatial(); syncSelPanel(); requestAnimationFrame(spatialTick); }
+        function spScreen(e){ const c=document.getElementById('spatial-canvas'); const r=c.getBoundingClientRect();
+            return [(e.clientX-r.left)*(SP.size/r.width), (e.clientY-r.top)*(SP.size/r.height)]; }
+        function spWorld(sx,sy){ return [(sx-spView.panx-SP.cx)/spView.zoom+SP.cx, (sy-spView.pany-SP.cy)/spView.zoom+SP.cy]; }
+        function spZoomBy(f){ spView.zoom=Math.max(0.6,Math.min(5,spView.zoom*f)); }
+        function spResetView(){ spView.zoom=1; spView.panx=0; spView.pany=0; }
+        function updateSpectrum(){ const anySolo=soloState.some(s=>s);
+            for(let i=1;i<=13;i++){ const bar=document.getElementById('spec'+i); if(!bar)continue;
+                const g=spVal('gain'+i); bar.style.height=Math.max(3,(g/3)*86)+'px';   // px (no %): evita blink; 86 ≈ 1.6× la altura anterior
+                bar.style.opacity=(anySolo&&!soloState[i-1])?'0.22':'0.95';
+                bar.style.boxShadow=(i===selectedBand)?'inset 0 0 0 2px #fff':'none'; } }   // mismo borde interno blanco que el nodo seleccionado en el radar
+        function uiTick(){ updateSpectrum(); requestAnimationFrame(uiTick); }
+        function spHit(mx,my){ let best=0,bestd=1e9; spNodes.forEach(n=>{ const dd=Math.hypot(mx-n.dx,my-n.dy); const t=Math.max(18,n.rr+6); if(dd<t&&dd<bestd){bestd=dd;best=n.i;} }); return best; }
+        function spSend(i,a,d,force){ const now=Date.now(); if(!force&&now-lastSpSend<45)return; lastSpSend=now;
+            fetch('/control/batch',{method:'POST',headers:{'Content-Type':'application/json'},
+              body:JSON.stringify({updates:[{address:'/beacon/az/'+i,value:a},{address:'/beacon/dist/'+i,value:d}]}),keepalive:true}).catch(()=>{}); }
+        function spApply(i,a,d,force){ const az=document.getElementById('az'+i),di=document.getElementById('dist'+i);
+            if(az){az.value=a;show(az,'a'+i);} if(di){di.value=d;show(di,'d'+i);} spSend(i,a,d,force); }
+        // Mute por canal (client-side: guarda el gain previo y lo pone en 0; restaura al desmutear)
+        function toggleMute(i, btn){ const g=document.getElementById('gain'+i); if(!g) return;
+            mutedState[i-1]=mutedState[i-1]?0:1;
+            if(mutedState[i-1]){ prevGain[i-1]=parseFloat(g.value); g.value=0; }
+            else { g.value=(prevGain[i-1]!=null?prevGain[i-1]:1); }
+            send('gain', i, parseFloat(g.value)); show(g,'g'+i); updateSpec(i, g.value);
+            const mb=btn||document.getElementById('m'+i);
+            if(mb){ mb.classList.toggle('!bg-rose-500/80', !!mutedState[i-1]); mb.classList.toggle('!text-white', !!mutedState[i-1]); mb.classList.toggle('!border-rose-500/60', !!mutedState[i-1]); }
+            syncSelPanel();
+        }
+        // Panel del canal seleccionado en el Espacial (Solo/Mute/Ganancia)
+        // Espacial: solo exclusivo que SIGUE a la selección (un solo nodo soleado a la vez = el seleccionado)
+        let soloFollow = false;
+        function refreshSoloVisuals(){ const anySolo=soloState.some(s=>s);
+            for(let i=1;i<=13;i++){ const on=!!soloState[i-1];
+                const b=document.getElementById('s'+i); if(b){ b.classList.toggle('!bg-white',on); b.classList.toggle('!text-black',on); b.classList.toggle('!border-white',on); }
+                const card=document.getElementById('band'+i); if(card) card.style.opacity=(anySolo&&!on)?'0.35':'1'; }
+        }
+        function soloOnly(band){ for(let i=1;i<=13;i++){ const want=(i===band)?1:0; if(soloState[i-1]!==want){ soloState[i-1]=want; send('solo',i,want); } } refreshSoloVisuals(); }
+        function soloClearAll(){ for(let i=1;i<=13;i++){ if(soloState[i-1]){ soloState[i-1]=0; send('solo',i,0); } } refreshSoloVisuals(); }
+        function syncSelPanel(){
+            const i=selectedBand, freqEl=document.getElementById('sel-freq');
+            if(!freqEl) return;
+            const soloB=document.getElementById('sel-solo'), muteB=document.getElementById('sel-mute'),
+                  gEl=document.getElementById('sel-gain'), gv=document.getElementById('sel-gain-val');
+            if(!i){ freqEl.textContent='—'; freqEl.style.color='#6b6480'; if(gv) gv.textContent=''; return; }
+            freqEl.textContent=freqLabels[i-1]+' Hz'; freqEl.style.color=bandColors[i-1];
+            const g=spVal('gain'+i); if(gEl && document.activeElement!==gEl) gEl.value=g; if(gv) gv.textContent=g.toFixed(2);
+            if(soloB){ const on=soloFollow; soloB.classList.toggle('!bg-white',on); soloB.classList.toggle('!text-black',on); }
+            if(muteB){ const on=!!mutedState[i-1]; muteB.classList.toggle('!bg-rose-500/80',on); muteB.classList.toggle('!text-white',on); }
+        }
+        function toggleSelSolo(){ if(!selectedBand) return; soloFollow=!soloFollow;
+            if(soloFollow) soloOnly(selectedBand); else soloClearAll(); syncSelPanel(); }
+        function toggleSelMute(){ if(selectedBand){ toggleMute(selectedBand, document.getElementById('m'+selectedBand)); } }
+        function setSelGain(v){ if(!selectedBand) return; const i=selectedBand, g=document.getElementById('gain'+i);
+            if(g){ g.value=v; show(g,'g'+i); } send('gain',i,parseFloat(v)); updateSpec(i,v);
+            const gv=document.getElementById('sel-gain-val'); if(gv) gv.textContent=parseFloat(v).toFixed(2);
+            if(mutedState[i-1]){ mutedState[i-1]=0; const mb=document.getElementById('m'+i); if(mb) mb.classList.remove('!bg-rose-500/80','!text-white','!border-rose-500/60'); }
+        }
+        // Ajuste de gain por banda arrastrando la barra del EQ superior (relativo, geared 2:1 → más control)
+        function setGain(i, v){ v=Math.max(0,Math.min(3, Math.round(v*100)/100)); const g=document.getElementById('gain'+i);
+            if(g){ g.value=v; show(g,'g'+i); } send('gain', i, v); updateSpec(i, v);
+            if(mutedState[i-1]){ mutedState[i-1]=0; const mb=document.getElementById('m'+i); if(mb) mb.classList.remove('!bg-rose-500/80','!text-white','!border-rose-500/60'); }
+            if(i===selectedBand){ const sg=document.getElementById('sel-gain'), sv=document.getElementById('sel-gain-val'); if(sg) sg.value=v; if(sv) sv.textContent=v.toFixed(2); }
+        }
+        function initEq(){ const spec=document.getElementById('spectrum'); if(!spec) return; spec.style.cursor='ns-resize';
+            let band=0, y0=0, g0=0; const PXG=86/3, GEAR=0.5;   // 2:1: movés ~2px de cursor por 1px de barra
+            const bandFrom=t=>{ const el=(t&&t.closest)?t.closest('[id^="spec"]'):null; if(!el)return 0; const m=el.id.match(/^spec(\\d+)$/); return m?+m[1]:0; };
+            spec.addEventListener('pointerdown',ev=>{ const b=bandFrom(ev.target); if(!b)return;
+                band=b; y0=ev.clientY; g0=spVal('gain'+b); try{spec.setPointerCapture(ev.pointerId);}catch(e){}
+                selectedBand=b; if(soloFollow) soloOnly(b); syncSelPanel();   // clic en el EQ también selecciona el nodo
+                ev.preventDefault(); });
+            spec.addEventListener('pointermove',ev=>{ if(!band)return; const dy=y0-ev.clientY; setGain(band, g0+(dy/PXG)*GEAR); });
+            const end=ev=>{ if(band){ try{spec.releasePointerCapture(ev.pointerId);}catch(e){} band=0; } };
+            spec.addEventListener('pointerup',end); spec.addEventListener('pointercancel',end);
+        }
+        function initSpatial(){ const c=document.getElementById('spatial-canvas'); if(!c) return; spSetupCanvas();
+            c.addEventListener('pointerdown',ev=>{ const s=spScreen(ev); const w=spWorld(s[0],s[1]); const i=spHit(w[0],w[1]);
+                c.setPointerCapture(ev.pointerId);
+                if(i){ // SELECCIONAR sin mover: guardamos el punto de agarre y la posición REAL del dot
+                    selectedBand=i; if(soloFollow) soloOnly(i);   // el solo sigue a la selección
+                    spDragging=true; spMoved=false; c.style.cursor='grabbing';
+                    grabPx0=w[0]; grabPy0=w[1]; const t=azDistToXY(spVal('az'+i),spVal('dist'+i)); grabTx0=t[0]; grabTy0=t[1];
+                    syncSelPanel(); }
+                else { spPanning=true; panLast=s; c.style.cursor='move'; } });
+            c.addEventListener('pointermove',ev=>{ const s=spScreen(ev);
+                if(spDragging&&selectedBand){ const w=spWorld(s[0],s[1]); spMoved=true;   // mover RELATIVO a la posición real (sin teletransporte)
+                    const ad=xyToAzDist(grabTx0+(w[0]-grabPx0), grabTy0+(w[1]-grabPy0)); spApply(selectedBand,ad[0],ad[1],false); }
+                else if(spPanning){ spView.panx+=s[0]-panLast[0]; spView.pany+=s[1]-panLast[1]; panLast=s; }
+                else { const w=spWorld(s[0],s[1]); hoverBand=spHit(w[0],w[1]); c.style.cursor=hoverBand?'grab':'default'; } });
+            const end=ev=>{ if(spDragging&&selectedBand&&spMoved){ const s=spScreen(ev); const w=spWorld(s[0],s[1]);
+                    const ad=xyToAzDist(grabTx0+(w[0]-grabPx0), grabTy0+(w[1]-grabPy0)); spApply(selectedBand,ad[0],ad[1],true);}
+                spDragging=false; spPanning=false; c.style.cursor='default'; };
+            c.addEventListener('pointerup',end); c.addEventListener('pointercancel',end);
+            c.addEventListener('pointerleave',()=>{ if(!spDragging&&!spPanning) hoverBand=0; });
+            c.addEventListener('wheel',ev=>{ ev.preventDefault(); const s=spScreen(ev); const w=spWorld(s[0],s[1]);
+                const f=ev.deltaY<0?1.12:1/1.12; spView.zoom=Math.max(0.6,Math.min(5,spView.zoom*f));
+                spView.panx=s[0]-((w[0]-SP.cx)*spView.zoom+SP.cx); spView.pany=s[1]-((w[1]-SP.cy)*spView.zoom+SP.cy); }, {passive:false});
+        }
+
         function sendGlobal(param, value) {
             fetch('/control', {
                 method: 'POST',
@@ -588,7 +1041,7 @@ HTML = """<!DOCTYPE html>
         
         function updateSpec(band, value) {
             const bar = document.getElementById('spec' + band);
-            if (bar) bar.style.height = (parseFloat(value) / 3.0 * 100) + '%';
+            if (bar) bar.style.height = Math.max(3, (parseFloat(value) / 3.0) * 86) + 'px';  // px, igual que updateSpectrum (sin blink)
         }
 
         let recording = false;
@@ -1295,8 +1748,14 @@ HTML = """<!DOCTYPE html>
                 btn.classList.remove('bg-emerald-500', 'border-emerald-500', 'text-white');
                 text.textContent = 'LIVE';
 
+                // Frenar limpio: parar el loop de viz, soltar el listener de calibración,
+                // y congelar el envío (liveSensorsActive ya está en false → no se mandan más OSC).
+                if (sensorVizInterval) { clearInterval(sensorVizInterval); sensorVizInterval = null; }
+                centerCalibrated = false;
+                const drv = document.getElementById('sensor-driving');
+                if (drv) drv.textContent = '(LIVE detenido)';
                 const status = document.getElementById('sensor-status');
-                if (status) status.innerHTML = '<i class="fa-solid fa-circle text-slate-400 text-[8px]"></i> <span>Live paused</span>';
+                if (status) status.innerHTML = '<i class="fa-solid fa-circle text-slate-400 text-[8px]"></i> <span>Live detenido</span>';
             }
         }
 
@@ -1384,7 +1843,8 @@ HTML = """<!DOCTYPE html>
 
         // Load/Save config (kept intact)
         function loadConfig() {
-            const name = document.getElementById('load-select').value;
+            const sel = document.getElementById('load-select-large') || document.getElementById('load-select');
+            const name = sel ? sel.value : '';
             if (!name) { 
                 const status = document.getElementById('config-status');
                 if (status) status.textContent = 'Select a preset';
@@ -1412,6 +1872,7 @@ HTML = """<!DOCTYPE html>
         function loadConfigList() {
             fetch('/list_configs').then(r => r.json()).then(data => {
                 const sel = document.getElementById('load-select');
+                if (!sel) return;   // el dropdown visible es load-select-large (lo puebla renderPresetCards)
                 sel.innerHTML = '<option value="">Load preset...</option>';
                 (data.configs || []).forEach(c => {
                     const opt = document.createElement('option');
@@ -1458,6 +1919,9 @@ HTML = """<!DOCTYPE html>
 
             // Boot sensor stuff
             initSensorUI();
+            initSpatial();
+            initEq();
+            uiTick();
             loadConfigList();
             renderPresetCards();
 
@@ -1465,7 +1929,8 @@ HTML = """<!DOCTYPE html>
             updateSensorInfluence(sensorInfluence);
 
             // Restore last tab (or default to manual)
-            const last = localStorage.getItem('beacon.activeTab') || 'manual';
+            const qp = new URLSearchParams(location.search).get('tab');
+            const last = qp || localStorage.getItem('beacon.activeTab') || 'spatial';
             switchTab(last);
 
             // First paint of sensor debug panel
@@ -1491,6 +1956,9 @@ HTML = """<!DOCTYPE html>
                 b.classList.toggle('text-slate-400', !active);
             });
             localStorage.setItem('beacon.activeTab', name);
+            // Campo espacial: arrancar/parar el loop de dibujo
+            spatialActive = (name === 'spatial');
+            if (spatialActive) { spSetupCanvas(); requestAnimationFrame(spatialTick); }
         }
 
         function renderPresetCards() {
@@ -1530,7 +1998,7 @@ HTML = """<!DOCTYPE html>
                             '</div>' +
                             '<div class="text-[10px] text-slate-500">click to load</div>';
                         card.onclick = () => {
-                            document.getElementById('load-select').value = c;
+                            const b=document.getElementById('load-select-large'); if(b) b.value=c;
                             loadConfig();
                         };
                         cards.appendChild(card);
@@ -1682,11 +2150,7 @@ HTML = """<!DOCTYPE html>
         window.addEventListener('devicemotion', __updateAfterOrient, true);
 
         function loadConfigFromLargeSelect() {
-            const sel = document.getElementById('load-select-large');
-            if (sel && sel.value) {
-                document.getElementById('load-select').value = sel.value;
-                loadConfig();
-            }
+            loadConfig();   // loadConfig ya lee load-select-large
         }
 
         window.onload = initializeUI;
@@ -1764,6 +2228,175 @@ def list_configs():
     files = sorted(glob.glob(os.path.join(CONFIG_DIR, "*.json")))
     configs = [os.path.splitext(os.path.basename(f))[0] for f in files]
     return jsonify({"ok": True, "configs": configs})
+
+@app.route("/level")
+def level():
+    return jsonify({"level": _LATEST["level"]})
+
+# ---- Salida seleccionable: re-rutea SuperCollider:out_1/2 al sink elegido vía pw-link ----
+def _pwlink(*args, timeout=4):
+    try:
+        return subprocess.run(["pw-link", *args], capture_output=True, text=True, timeout=timeout)
+    except Exception:
+        return None
+
+def _playback_ports():
+    r = _pwlink("-i")
+    ports = []
+    if r:
+        for line in r.stdout.splitlines():
+            line = line.strip()
+            if ":" in line and "playback" in line.lower():
+                ports.append(line)
+    return ports
+
+def _output_nodes():
+    nodes = {}
+    for p in _playback_ports():
+        nodes.setdefault(p.rsplit(":", 1)[0], []).append(p)
+    return nodes
+
+def _out_label(node):
+    n = node.lower()
+    if "fosi" in n: return "Fosi Audio DS2"
+    if "headphones" in n: return "Auriculares internos"
+    if "hdmi3" in n: return "HDMI 3"
+    if "hdmi2" in n: return "HDMI 2"
+    if "hdmi1" in n: return "HDMI 1"
+    if "midi" in n or "bridge" in n: return None  # excluir
+    lbl = node.split(".")[-1].replace("__sink", "").replace("_", " ").strip()
+    return lbl or node
+
+def _current_output():
+    # a qué nodo está conectado SuperCollider:out_1 (parse de `pw-link -l`)
+    r = _pwlink("-l")
+    if not r:
+        return ""
+    cur = None
+    for raw in r.stdout.splitlines():
+        if not raw.strip():
+            continue
+        if raw[:1].isspace():
+            s = raw.strip()
+            if cur == "SuperCollider:out_1" and "|->" in s:
+                target = s.split("|->", 1)[1].strip()
+                if ":" in target:
+                    return target.rsplit(":", 1)[0]
+        else:
+            cur = raw.strip()
+    return ""
+
+@app.route("/list_outputs")
+def list_outputs():
+    outs = []
+    for node, ports in _output_nodes().items():
+        lbl = _out_label(node)
+        if lbl and len(ports) >= 2:
+            outs.append({"node": node, "label": lbl})
+    outs.sort(key=lambda o: o["label"])
+    return jsonify({"ok": True, "outputs": outs, "current": _current_output()})
+
+@app.route("/output", methods=["POST"])
+def set_output():
+    node = ((request.get_json() or {}).get("node") or "").strip()
+    ports = sorted(_output_nodes().get(node, []))
+    if len(ports) < 2:
+        return jsonify({"ok": False, "error": "sin puertos"}), 400
+    # desconectar la salida de SuperCollider de todos los playbacks, luego conectar al elegido
+    for src in ("SuperCollider:out_1", "SuperCollider:out_2"):
+        for p in _playback_ports():
+            _pwlink("-d", src, p)
+    _pwlink("SuperCollider:out_1", ports[0])
+    _pwlink("SuperCollider:out_2", ports[1])
+    return jsonify({"ok": True, "node": node, "label": _out_label(node)})
+
+# ---- Entrada seleccionable (modo "En vivo"): rutea una captura → SuperCollider:in_1 ----
+def _capture_ports():
+    r = _pwlink("-o")
+    ports = []
+    if r:
+        for line in r.stdout.splitlines():
+            line = line.strip()
+            low = line.lower()
+            if ":" not in line:
+                continue
+            if any(x in low for x in ("monitor", "supercollider", "midi", "v4l2")):
+                continue
+            if "capture" in low or "alsa_input" in low:
+                ports.append(line)
+    return ports
+
+def _input_nodes():
+    nodes = {}
+    for p in _capture_ports():
+        nodes.setdefault(p.rsplit(":", 1)[0], []).append(p)
+    return nodes
+
+def _in_label(node):
+    n = node.lower()
+    if "fosi" in n: return "Fosi (entrada)"
+    if "zoom" in n or "r24" in n or "r16" in n: return "Zoom (placa)"
+    if "mic1" in n: return "Mic interno 1"
+    if "mic2" in n: return "Mic interno 2"
+    lbl = node.split(".")[-1].replace("__source", "").replace("_", " ").strip()
+    return lbl or node
+
+def _current_input():
+    r = _pwlink("-l")
+    if not r:
+        return ""
+    cur = None
+    for raw in r.stdout.splitlines():
+        if not raw.strip():
+            continue
+        if raw[:1].isspace():
+            s = raw.strip()
+            if cur == "SuperCollider:in_1" and "|<-" in s:
+                src = s.split("|<-", 1)[1].strip()
+                if ":" in src:
+                    return src.rsplit(":", 1)[0]
+        else:
+            cur = raw.strip()
+    return ""
+
+@app.route("/list_inputs")
+def list_inputs():
+    ins = []
+    for node, ports in _input_nodes().items():
+        lbl = _in_label(node)
+        if lbl and ports:
+            ins.append({"node": node, "label": lbl})
+    ins.sort(key=lambda o: o["label"])
+    return jsonify({"ok": True, "inputs": ins, "current": _current_input()})
+
+@app.route("/input", methods=["POST"])
+def set_input():
+    node = ((request.get_json() or {}).get("node") or "").strip()
+    ports = sorted(_input_nodes().get(node, []))
+    if not ports:
+        return jsonify({"ok": False, "error": "sin puertos"}), 400
+    for p in _capture_ports():           # desconectar in_1 de toda captura
+        _pwlink("-d", p, "SuperCollider:in_1")
+    _pwlink(ports[0], "SuperCollider:in_1")   # captura elegida → entrada de SC (SoundIn.ar(0))
+    return jsonify({"ok": True, "node": node, "label": _in_label(node)})
+
+@app.route("/list_sources")
+def list_sources():
+    # WAVs disponibles como fuente (aporte BEACON-sound) + cuál reproduce el engine (BEACON_AUDIO)
+    files = sorted(glob.glob(os.path.join(SOURCES_DIR, "*.wav")))
+    sources = [{"name": os.path.basename(f), "path": f} for f in files]
+    playing = os.path.basename(os.environ.get("BEACON_AUDIO", "")) or (sources[0]["name"] if sources else "")
+    return jsonify({"ok": True, "dir": SOURCES_DIR, "sources": sources, "playing": playing})
+
+@app.route("/source", methods=["POST"])
+def source():
+    # Cambia el WAV fuente en vivo: OSC /beacon/source/file <path> → beacon.scd
+    data = request.get_json() or {}
+    path = (data.get("path") or "").strip()
+    if not path or not os.path.exists(path):
+        return jsonify({"ok": False, "error": "bad path"}), 400
+    osc.send_message("/beacon/source/file", path)
+    return jsonify({"ok": True, "path": path})
 
 @app.route("/load_config", methods=["POST"])
 def load_config():
