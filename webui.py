@@ -351,7 +351,7 @@ HTML = """<!DOCTYPE html>
 
         <!-- Spectrum Visual (always visible) -->
         <div class="mb-5">
-            <div class="flex items-end gap-1 h-16 px-1 bg-slate-950/70 border border-slate-800 rounded-3xl p-2" id="spectrum">
+            <div class="flex items-end gap-1 h-[118px] px-1 bg-slate-950/70 border border-slate-800 rounded-3xl p-2" id="spectrum">
                 {% for band in bands %}
                 <div class="flex-1 flex flex-col items-center">
                     <div class="spectrum-bar w-full rounded-t-full transition-all duration-75"
@@ -920,7 +920,7 @@ HTML = """<!DOCTYPE html>
         function spResetView(){ spView.zoom=1; spView.panx=0; spView.pany=0; }
         function updateSpectrum(){ const anySolo=soloState.some(s=>s);
             for(let i=1;i<=13;i++){ const bar=document.getElementById('spec'+i); if(!bar)continue;
-                const g=spVal('gain'+i); bar.style.height=Math.max(3,(g/3)*54)+'px';   // px: el contenedor no fija altura → % no resolvía
+                const g=spVal('gain'+i); bar.style.height=Math.max(3,(g/3)*86)+'px';   // px (no %): evita blink; 86 ≈ 1.6× la altura anterior
                 bar.style.opacity=(anySolo&&!soloState[i-1])?'0.22':'0.95'; } }
         function uiTick(){ updateSpectrum(); requestAnimationFrame(uiTick); }
         function spHit(mx,my){ let best=0,bestd=1e9; spNodes.forEach(n=>{ const dd=Math.hypot(mx-n.dx,my-n.dy); const t=Math.max(18,n.rr+6); if(dd<t&&dd<bestd){bestd=dd;best=n.i;} }); return best; }
@@ -940,6 +940,15 @@ HTML = """<!DOCTYPE html>
             syncSelPanel();
         }
         // Panel del canal seleccionado en el Espacial (Solo/Mute/Ganancia)
+        // Espacial: solo exclusivo que SIGUE a la selección (un solo nodo soleado a la vez = el seleccionado)
+        let soloFollow = false;
+        function refreshSoloVisuals(){ const anySolo=soloState.some(s=>s);
+            for(let i=1;i<=13;i++){ const on=!!soloState[i-1];
+                const b=document.getElementById('s'+i); if(b){ b.classList.toggle('!bg-white',on); b.classList.toggle('!text-black',on); b.classList.toggle('!border-white',on); }
+                const card=document.getElementById('band'+i); if(card) card.style.opacity=(anySolo&&!on)?'0.35':'1'; }
+        }
+        function soloOnly(band){ for(let i=1;i<=13;i++){ const want=(i===band)?1:0; if(soloState[i-1]!==want){ soloState[i-1]=want; send('solo',i,want); } } refreshSoloVisuals(); }
+        function soloClearAll(){ for(let i=1;i<=13;i++){ if(soloState[i-1]){ soloState[i-1]=0; send('solo',i,0); } } refreshSoloVisuals(); }
         function syncSelPanel(){
             const i=selectedBand, freqEl=document.getElementById('sel-freq');
             if(!freqEl) return;
@@ -948,10 +957,11 @@ HTML = """<!DOCTYPE html>
             if(!i){ freqEl.textContent='—'; freqEl.style.color='#6b6480'; if(gv) gv.textContent=''; return; }
             freqEl.textContent=freqLabels[i-1]+' Hz'; freqEl.style.color=bandColors[i-1];
             const g=spVal('gain'+i); if(gEl && document.activeElement!==gEl) gEl.value=g; if(gv) gv.textContent=g.toFixed(2);
-            if(soloB){ const on=!!soloState[i-1]; soloB.classList.toggle('!bg-white',on); soloB.classList.toggle('!text-black',on); }
+            if(soloB){ const on=soloFollow; soloB.classList.toggle('!bg-white',on); soloB.classList.toggle('!text-black',on); }
             if(muteB){ const on=!!mutedState[i-1]; muteB.classList.toggle('!bg-rose-500/80',on); muteB.classList.toggle('!text-white',on); }
         }
-        function toggleSelSolo(){ if(selectedBand){ toggleSolo(selectedBand, document.getElementById('s'+selectedBand)); syncSelPanel(); } }
+        function toggleSelSolo(){ if(!selectedBand) return; soloFollow=!soloFollow;
+            if(soloFollow) soloOnly(selectedBand); else soloClearAll(); syncSelPanel(); }
         function toggleSelMute(){ if(selectedBand){ toggleMute(selectedBand, document.getElementById('m'+selectedBand)); } }
         function setSelGain(v){ if(!selectedBand) return; const i=selectedBand, g=document.getElementById('gain'+i);
             if(g){ g.value=v; show(g,'g'+i); } send('gain',i,parseFloat(v)); updateSpec(i,v);
@@ -962,7 +972,8 @@ HTML = """<!DOCTYPE html>
             c.addEventListener('pointerdown',ev=>{ const s=spScreen(ev); const w=spWorld(s[0],s[1]); const i=spHit(w[0],w[1]);
                 c.setPointerCapture(ev.pointerId);
                 if(i){ // SELECCIONAR sin mover: guardamos el punto de agarre y la posición REAL del dot
-                    selectedBand=i; spDragging=true; spMoved=false; c.style.cursor='grabbing';
+                    selectedBand=i; if(soloFollow) soloOnly(i);   // el solo sigue a la selección
+                    spDragging=true; spMoved=false; c.style.cursor='grabbing';
                     grabPx0=w[0]; grabPy0=w[1]; const t=azDistToXY(spVal('az'+i),spVal('dist'+i)); grabTx0=t[0]; grabTy0=t[1];
                     syncSelPanel(); }
                 else { spPanning=true; panLast=s; c.style.cursor='move'; } });
@@ -997,7 +1008,7 @@ HTML = """<!DOCTYPE html>
         
         function updateSpec(band, value) {
             const bar = document.getElementById('spec' + band);
-            if (bar) bar.style.height = (parseFloat(value) / 3.0 * 100) + '%';
+            if (bar) bar.style.height = Math.max(3, (parseFloat(value) / 3.0) * 86) + 'px';  // px, igual que updateSpectrum (sin blink)
         }
 
         let recording = false;
