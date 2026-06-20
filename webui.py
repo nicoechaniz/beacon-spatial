@@ -314,38 +314,39 @@ HTML = """<!DOCTYPE html>
         </div>
 
         <!-- FUENTE / transporte: QUÉ suena (el engine reproduce en loop; cambiar = recarga en vivo) -->
-        <div class="section rounded-2xl px-4 py-3 mb-5 flex items-center gap-3 flex-wrap">
-            <span class="w-9 h-9 rounded-xl border border-slate-700 flex items-center justify-center text-cyan-300 shrink-0"><i class="fa-solid fa-circle-play"></i></span>
-            <div class="leading-tight mr-2">
-                <div class="control-label">FUENTE</div>
-                <div id="source-now" class="font-mono text-sm text-slate-200">—</div>
-            </div>
-            <div class="flex rounded-xl border border-slate-700 overflow-hidden text-xs">
-                <button id="mode-file" onclick="setMode(0)" class="px-3 py-1.5 font-medium transition-colors">Archivo</button>
-                <button id="mode-live" onclick="setMode(1)" class="px-3 py-1.5 font-medium border-l border-slate-700 transition-colors">En vivo</button>
-            </div>
-            <div class="flex items-center gap-1.5 ml-1" title="nivel de entrada de placa">
-                <i class="fa-solid fa-microphone text-[10px] text-slate-500"></i>
-                <div class="w-20 h-1.5 rounded-full bg-slate-800 overflow-hidden">
-                    <div id="in-vu" class="h-full transition-[width] duration-75" style="width:0%;background:#475569"></div>
+        <div class="section rounded-2xl px-4 py-3 mb-5 flex items-center gap-4">
+            <span class="w-10 h-10 rounded-xl border border-slate-700 flex items-center justify-center text-cyan-300 shrink-0 text-lg"><i class="fa-solid fa-circle-play"></i></span>
+            <div class="flex-1 min-w-0 flex flex-col gap-2.5">
+                <!-- fila FUENTE -->
+                <div class="flex items-center gap-3 flex-wrap">
+                    <span class="control-label w-12 shrink-0">FUENTE</span>
+                    <div class="flex rounded-lg border border-slate-700 overflow-hidden text-xs shrink-0">
+                        <button id="mode-file" onclick="setMode(0)" class="px-3 py-1 font-medium transition-colors">Archivo</button>
+                        <button id="mode-live" onclick="setMode(1)" class="px-3 py-1 font-medium border-l border-slate-700 transition-colors">En vivo</button>
+                    </div>
+                    <div class="flex items-center gap-1.5 shrink-0" title="nivel de entrada de placa">
+                        <i class="fa-solid fa-microphone text-[10px] text-slate-500"></i>
+                        <div class="w-16 h-1.5 rounded-full bg-slate-800 overflow-hidden"><div id="in-vu" class="h-full transition-[width] duration-75" style="width:0%;background:#475569"></div></div>
+                    </div>
+                    <span id="source-now" class="font-mono text-sm text-slate-200 truncate flex-1 min-w-[80px]">—</span>
+                    <select id="source-select" onchange="onSourceChange(this.value)"
+                            class="bg-slate-950 border border-slate-700 rounded-xl px-3 py-1.5 text-sm text-slate-300 min-w-[210px] outline-none shrink-0">
+                        <option value="">— elegí un WAV —</option>
+                    </select>
+                    <button onclick="onSourceRefresh()" title="refrescar lista"
+                            class="w-8 h-8 rounded-xl border border-slate-700 text-slate-400 hover:bg-slate-900 hover:border-cyan-500/40 transition-colors shrink-0"><i class="fa-solid fa-arrows-rotate text-xs"></i></button>
+                </div>
+                <!-- fila SALIDA -->
+                <div class="flex items-center gap-3 flex-wrap">
+                    <span class="control-label w-12 shrink-0">SALIDA</span>
+                    <i class="fa-solid fa-volume-high text-[11px] text-slate-500 shrink-0"></i>
+                    <select id="output-select" onchange="setOutput(this.value)" title="dispositivo de salida"
+                            class="bg-slate-950 border border-slate-700 rounded-xl px-3 py-1.5 text-sm text-slate-300 outline-none min-w-[210px] shrink-0">
+                        <option value="">—</option>
+                    </select>
+                    <span id="source-status" class="text-[10px] text-slate-500 font-mono ml-auto truncate"></span>
                 </div>
             </div>
-            <div class="flex items-center gap-2 ml-auto">
-                <select id="source-select" onchange="onSourceChange(this.value)"
-                        class="bg-slate-950 border border-slate-700 rounded-2xl px-3 py-1.5 text-sm text-slate-300 min-w-[240px] outline-none">
-                    <option value="">— elegí un WAV —</option>
-                </select>
-                <button onclick="loadSources()" title="refrescar lista"
-                        class="text-xs px-3 py-1.5 rounded-2xl border border-slate-700 text-slate-400 hover:bg-slate-900 hover:border-cyan-500/40 transition-colors"><i class="fa-solid fa-arrows-rotate"></i></button>
-            </div>
-            <div class="flex items-center gap-2">
-                <span class="control-label"><i class="fa-solid fa-volume-high mr-1"></i>SALIDA</span>
-                <select id="output-select" onchange="setOutput(this.value)" title="dispositivo de salida"
-                        class="bg-slate-950 border border-slate-700 rounded-2xl px-3 py-1.5 text-sm text-slate-300 outline-none min-w-[150px]">
-                    <option value="">—</option>
-                </select>
-            </div>
-            <span id="source-status" class="text-[10px] text-slate-500 font-mono w-full sm:w-auto sm:ml-2"></span>
         </div>
 
         <!-- Spectrum Visual (always visible) -->
@@ -371,7 +372,7 @@ HTML = """<!DOCTYPE html>
                 </div>
                 <span class="text-[10px] text-slate-500 font-mono">ángulo = azimut · radio = distancia · tamaño = gain</span>
             </div>
-            <div class="section rounded-3xl p-4 border border-slate-800 flex flex-col lg:flex-row gap-4 items-center lg:items-start justify-center">
+            <div class="section rounded-3xl p-5 border border-slate-800 flex flex-col lg:flex-row gap-6 items-center justify-center">
                 <div class="flex flex-col items-center">
                     <canvas id="spatial-canvas" class="touch-none" style="cursor:default;"></canvas>
                     <div class="flex items-center gap-2 mt-3 text-xs text-slate-400">
@@ -383,18 +384,19 @@ HTML = """<!DOCTYPE html>
                     <div class="text-[10px] text-slate-500 mt-2">clic = seleccionar · arrastrar = mover · rueda = zoom · arrastrar vacío = desplazar</div>
                 </div>
                 <!-- Panel del canal seleccionado -->
-                <div class="w-full lg:w-44 shrink-0 rounded-2xl border border-slate-800 bg-slate-950/40 p-4 flex flex-col items-center gap-3">
-                    <div class="control-label self-start">CANAL SELECCIONADO</div>
-                    <div id="sel-freq" class="font-mono text-xl" style="color:#6b6480">—</div>
-                    <div class="flex gap-2 w-full">
+                <div class="w-full lg:w-48 shrink-0 rounded-2xl border border-slate-800 bg-[#0d0a18]/60 p-4 flex flex-col gap-3">
+                    <div class="control-label">CANAL SELECCIONADO</div>
+                    <div id="sel-freq" class="font-mono text-2xl leading-none" style="color:#6b6480">—</div>
+                    <div class="border-t border-slate-800/80 -mx-4"></div>
+                    <div class="flex gap-2">
                         <button id="sel-solo" onclick="toggleSelSolo()" class="flex-1 py-1.5 rounded-xl border border-slate-700 text-xs font-bold text-slate-400 hover:bg-slate-800 transition-all">SOLO</button>
                         <button id="sel-mute" onclick="toggleSelMute()" class="flex-1 py-1.5 rounded-xl border border-slate-700 text-xs font-bold text-slate-400 hover:bg-slate-800 transition-all">MUTE</button>
                     </div>
-                    <div class="flex flex-col items-center gap-1 mt-1">
-                        <span class="control-label">GANANCIA</span>
+                    <div class="flex flex-col items-center gap-2 pt-2 mt-auto">
+                        <span class="control-label self-start">GANANCIA</span>
                         <input id="sel-gain" type="range" min="0" max="3" step="0.05" value="1" oninput="setSelGain(this.value)"
-                               class="modern-slider" style="writing-mode: vertical-lr; direction: rtl; width:6px; height:150px;">
-                        <span id="sel-gain-val" class="font-mono text-sm text-cyan-300"></span>
+                               class="modern-slider" style="writing-mode: vertical-lr; direction: rtl; width:6px; height:168px;">
+                        <span id="sel-gain-val" class="font-mono text-sm text-cyan-300">—</span>
                     </div>
                 </div>
             </div>
@@ -776,6 +778,7 @@ HTML = """<!DOCTYPE html>
             fetch('/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({address:'/beacon/mode',value:m})}).catch(()=>{});
         }
         function onSourceChange(v){ if(beaconMode===1) selectInput(v); else selectSource(v); }
+        function onSourceRefresh(){ if(beaconMode===1) loadInputs(); else loadSources(); }
         // Modo vivo: entradas de captura
         async function loadInputs(){ const sel=document.getElementById('source-select'); const now=document.getElementById('source-now'); const st=document.getElementById('source-status'); if(!sel) return;
             try{ const j=await (await fetch('/list_inputs')).json(); const list=j.inputs||[];
