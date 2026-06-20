@@ -331,7 +331,7 @@ HTML = """<!DOCTYPE html>
                 </div>
             </div>
             <div class="flex items-center gap-2 ml-auto">
-                <select id="source-select" onchange="selectSource(this.value)"
+                <select id="source-select" onchange="onSourceChange(this.value)"
                         class="bg-slate-950 border border-slate-700 rounded-2xl px-3 py-1.5 text-sm text-slate-300 min-w-[240px] outline-none">
                     <option value="">— elegí un WAV —</option>
                 </select>
@@ -769,13 +769,27 @@ HTML = """<!DOCTYPE html>
                 f.classList.toggle('bg-cyan-500/20', m===0); f.classList.toggle('text-cyan-300', m===0); f.classList.toggle('text-slate-400', m!==0);
                 l.classList.toggle('bg-emerald-500/20', m===1); l.classList.toggle('text-emerald-300', m===1); l.classList.toggle('text-slate-400', m!==1);
             }
-            const sel=document.getElementById('source-select'); if(sel) sel.classList.toggle('opacity-40', m===1);
-            const now=document.getElementById('source-now');
-            if(now) now.textContent = (m===1) ? 'entrada de placa (vivo)' : (window.__playingName || '—');
-            const st=document.getElementById('source-status'); if(st) st.textContent = (m===1) ? 'reproduciendo la entrada de la placa en tiempo real' : (st.textContent||'');
+            // el dropdown muestra WAVs (archivo) o entradas de captura (vivo)
+            if(m===1) loadInputs(); else loadSources();
         }
         function setMode(m){ highlightMode(m);
             fetch('/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({address:'/beacon/mode',value:m})}).catch(()=>{});
+        }
+        function onSourceChange(v){ if(beaconMode===1) selectInput(v); else selectSource(v); }
+        // Modo vivo: entradas de captura
+        async function loadInputs(){ const sel=document.getElementById('source-select'); const now=document.getElementById('source-now'); const st=document.getElementById('source-status'); if(!sel) return;
+            try{ const j=await (await fetch('/list_inputs')).json(); const list=j.inputs||[];
+                sel.innerHTML = '<option value="">— elegí una entrada —</option>';
+                let curLabel='entrada de placa';
+                list.forEach(o=>{ const op=document.createElement('option'); op.value=o.node; op.textContent=o.label;
+                    if(o.node===j.current){ op.selected=true; curLabel=o.label; } sel.appendChild(op); });
+                if(now) now.textContent = curLabel;
+                if(st) st.textContent = list.length + ' entradas · en vivo por la placa';
+            }catch(e){ if(st) st.textContent='error listando entradas'; }
+        }
+        function selectInput(node){ if(!node) return; const st=document.getElementById('source-status'); const now=document.getElementById('source-now');
+            fetch('/input',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({node:node})})
+              .then(r=>r.json()).then(j=>{ if(j.ok){ if(now) now.textContent=j.label||''; if(st) st.textContent='entrada → '+(j.label||''); } else if(st) st.textContent='✗ '+(j.error||''); }).catch(()=>{ if(st) st.textContent='✗ error'; });
         }
         window.addEventListener('load', loadSources);
         window.addEventListener('load', () => highlightMode(0));
@@ -2247,6 +2261,76 @@ def set_output():
     _pwlink("SuperCollider:out_1", ports[0])
     _pwlink("SuperCollider:out_2", ports[1])
     return jsonify({"ok": True, "node": node, "label": _out_label(node)})
+
+# ---- Entrada seleccionable (modo "En vivo"): rutea una captura → SuperCollider:in_1 ----
+def _capture_ports():
+    r = _pwlink("-o")
+    ports = []
+    if r:
+        for line in r.stdout.splitlines():
+            line = line.strip()
+            low = line.lower()
+            if ":" not in line:
+                continue
+            if any(x in low for x in ("monitor", "supercollider", "midi", "v4l2")):
+                continue
+            if "capture" in low or "alsa_input" in low:
+                ports.append(line)
+    return ports
+
+def _input_nodes():
+    nodes = {}
+    for p in _capture_ports():
+        nodes.setdefault(p.rsplit(":", 1)[0], []).append(p)
+    return nodes
+
+def _in_label(node):
+    n = node.lower()
+    if "fosi" in n: return "Fosi (entrada)"
+    if "zoom" in n or "r24" in n or "r16" in n: return "Zoom (placa)"
+    if "mic1" in n: return "Mic interno 1"
+    if "mic2" in n: return "Mic interno 2"
+    lbl = node.split(".")[-1].replace("__source", "").replace("_", " ").strip()
+    return lbl or node
+
+def _current_input():
+    r = _pwlink("-l")
+    if not r:
+        return ""
+    cur = None
+    for raw in r.stdout.splitlines():
+        if not raw.strip():
+            continue
+        if raw[:1].isspace():
+            s = raw.strip()
+            if cur == "SuperCollider:in_1" and "|<-" in s:
+                src = s.split("|<-", 1)[1].strip()
+                if ":" in src:
+                    return src.rsplit(":", 1)[0]
+        else:
+            cur = raw.strip()
+    return ""
+
+@app.route("/list_inputs")
+def list_inputs():
+    ins = []
+    for node, ports in _input_nodes().items():
+        lbl = _in_label(node)
+        if lbl and ports:
+            ins.append({"node": node, "label": lbl})
+    ins.sort(key=lambda o: o["label"])
+    return jsonify({"ok": True, "inputs": ins, "current": _current_input()})
+
+@app.route("/input", methods=["POST"])
+def set_input():
+    node = ((request.get_json() or {}).get("node") or "").strip()
+    ports = sorted(_input_nodes().get(node, []))
+    if not ports:
+        return jsonify({"ok": False, "error": "sin puertos"}), 400
+    for p in _capture_ports():           # desconectar in_1 de toda captura
+        _pwlink("-d", p, "SuperCollider:in_1")
+    _pwlink(ports[0], "SuperCollider:in_1")   # captura elegida → entrada de SC (SoundIn.ar(0))
+    return jsonify({"ok": True, "node": node, "label": _in_label(node)})
 
 @app.route("/list_sources")
 def list_sources():
