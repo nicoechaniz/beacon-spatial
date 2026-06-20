@@ -858,9 +858,21 @@ HTML = """<!DOCTYPE html>
                 for(let j=k+1;j<base.length;j++){ const bj=base[j]; if(used[bj.i])continue;
                     if(Math.hypot(bk.x-bj.x,bk.y-bj.y)<13){ cl.push(bj); used[bj.i]=true; } }
                 if(cl.length===1){ nodes.push(Object.assign({},bk,{dx:bk.x,dy:bk.y,fan:false})); }
-                else { const ccx=cl.reduce((s,n)=>s+n.x,0)/cl.length, ccy=cl.reduce((s,n)=>s+n.y,0)/cl.length, R=18+cl.length*4.8;
+                else if(cl.length===2){
+                    // 2 nodos: NO abanico. Se apilan — el de MÁS ganancia abajo (centro), el de menos arriba y encima.
+                    const ccx=(cl[0].x+cl[1].x)/2, ccy=(cl[0].y+cl[1].y)/2;
+                    const s=cl.slice().sort((a,b)=>b.g-a.g);  // [mayor gain, menor gain]
+                    const big=s[0], small=s[1];
+                    const off=Math.max(big.rr,7);
+                    // big primero (queda abajo), small después (se dibuja encima, corrido hacia arriba)
+                    nodes.push(Object.assign({},big,{dx:ccx,dy:ccy+off*0.18,fan:false}));
+                    nodes.push(Object.assign({},small,{dx:ccx,dy:ccy-off*0.62,fan:false}));
+                }
+                else { // 3+ : abanico CEÑIDO, con punteadas que convergen a un centro claro
+                    const ccx=cl.reduce((s,n)=>s+n.x,0)/cl.length, ccy=cl.reduce((s,n)=>s+n.y,0)/cl.length, R=12+cl.length*2.4;
                     cl.forEach((n,idx)=>{ const ang=-Math.PI/2+idx/cl.length*2*Math.PI;
-                        nodes.push(Object.assign({},n,{dx:ccx+R*Math.cos(ang),dy:ccy+R*Math.sin(ang),cx0:ccx,cy0:ccy,fan:true})); }); }
+                        nodes.push(Object.assign({},n,{dx:ccx+R*Math.cos(ang),dy:ccy+R*Math.sin(ang),cx0:ccx,cy0:ccy,fan:true})); });
+                }
             }
             spNodes=nodes;
         }
@@ -890,7 +902,8 @@ HTML = """<!DOCTYPE html>
             ctx.fillStyle='#cda85e'; ctx.beginPath(); ctx.arc(cx,cy,2.6,0,TAU); ctx.fill();
             spComputeNodes();
             const anySolo=soloState.some(s=>s);
-            spNodes.forEach(n=>{ if(n.fan){ ctx.strokeStyle='rgba(169,139,255,0.28)'; ctx.lineWidth=1; ctx.setLineDash([2,3]); ctx.beginPath(); ctx.moveTo(n.cx0,n.cy0); ctx.lineTo(n.dx,n.dy); ctx.stroke(); ctx.setLineDash([]); } });
+            spNodes.forEach(n=>{ if(n.fan){ ctx.strokeStyle='rgba(169,139,255,0.32)'; ctx.lineWidth=1; ctx.setLineDash([1.5,2.5]); ctx.beginPath(); ctx.moveTo(n.cx0,n.cy0); ctx.lineTo(n.dx,n.dy); ctx.stroke(); ctx.setLineDash([]); } });
+            spNodes.forEach(n=>{ if(n.fan){ ctx.fillStyle='rgba(216,206,236,0.85)'; ctx.beginPath(); ctx.arc(n.cx0,n.cy0,2.4,0,TAU); ctx.fill(); } });  // centro claro de convergencia
             spNodes.forEach(n=>{ const sel=(n.i===selectedBand), hov=(n.i===hoverBand), col=bandColors[n.i-1];
                 ctx.globalAlpha=(anySolo&&!soloState[n.i-1])?0.25:1;
                 ctx.shadowColor=col; ctx.shadowBlur=sel?24:(hov?16:9);
