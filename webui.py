@@ -459,7 +459,7 @@ HTML = """<!DOCTYPE html>
                             <span class="control-label">DISTANCE</span>
                             <span id="d{{ loop.index }}" class="value-display font-mono text-emerald-300 text-sm">{{ band.default_dist }}</span>
                         </div>
-                        <input type="range" min="0" max="10" step="0.1" value="{{ band.default_dist }}" id="dist{{ loop.index }}"
+                        <input type="range" min="0" max="10" step="0.01" value="{{ band.default_dist }}" id="dist{{ loop.index }}"
                                class="modern-slider w-full accent-emerald-400"
                                oninput="send('dist', {{ loop.index }}, this.value); show(this, 'd{{ loop.index }}')">
                     </div>
@@ -822,7 +822,7 @@ HTML = """<!DOCTYPE html>
         setInterval(pollLevel, 100);
 
         // === Campo espacial — radar HiDPI, nodos con halo, declutter de clusters ===
-        const SP = { size:440, cx:220, cy:220, Rmax:188, Dmax:5, gamma:0.55 };  // gamma<1 = más detalle cerca del centro
+        const SP = { size:440, cx:220, cy:220, Rmax:188, Dmax:5, gamma:0.4 };  // gamma<1 = más detalle cerca del centro (más bajo = más exponencial)
         const bandColors = ["#c0392b","#e67e22","#f1c40f","#2ecc71","#1abc9c","#3498db","#2980b9","#8e44ad","#9b59b6","#e84393","#fd79a8","#a29bfe","#dfe6e9"];
         const freqLabels = ["40","80","120","160","200","240","480","720","960","1200","1440","1680","1800+"];
         let spatialActive=false, selectedBand=0, hoverBand=0, spDragging=false, spPanning=false, lastSpSend=0, spNodes=[];
@@ -842,7 +842,7 @@ HTML = """<!DOCTYPE html>
         function xyToAzDist(mx,my){ const dx=mx-SP.cx, dy=my-SP.cy;
             let d=rToDist(Math.sqrt(dx*dx+dy*dy)); d=Math.max(0,Math.min(10,d));
             let a=-90-Math.atan2(dy,dx)*180/Math.PI; while(a>180)a-=360; while(a<-180)a+=360;
-            return [Math.round(a), Math.round(d*10)/10]; }
+            return [Math.round(a), Math.round(d*100)/100]; }   // paso de distancia fino (0.01) → sin escalones gruesos
         function spSetupCanvas(){ const c=document.getElementById('spatial-canvas'); if(!c) return;
             const dpr=window.devicePixelRatio||1;
             c.style.width=SP.size+'px'; c.style.height=SP.size+'px';
@@ -876,7 +876,7 @@ HTML = """<!DOCTYPE html>
             bg.addColorStop(0,'rgba(40,27,72,0.50)'); bg.addColorStop(0.72,'rgba(16,11,28,0.28)'); bg.addColorStop(1,'rgba(8,6,14,0)');
             ctx.fillStyle=bg; ctx.beginPath(); ctx.arc(cx,cy,R,0,TAU); ctx.fill();
             ctx.lineWidth=1;
-            [0.5,1,2,3,4].forEach(dv=>{ const rr=distToR(dv); ctx.strokeStyle='rgba(169,139,255,0.11)';
+            [0.25,0.5,1,2,3,4].forEach(dv=>{ const rr=distToR(dv); ctx.strokeStyle='rgba(169,139,255,0.11)';
                 ctx.beginPath(); ctx.arc(cx,cy,rr,0,TAU); ctx.stroke();
                 ctx.fillStyle='rgba(150,140,180,0.4)'; ctx.font='8px "Spline Sans Mono",monospace'; ctx.textAlign='left';
                 ctx.fillText(dv, cx+2, cy-rr-2); });
@@ -909,7 +909,7 @@ HTML = """<!DOCTYPE html>
                 ctx.textAlign='left'; ctx.font='13px "Spline Sans Mono",ui-monospace,monospace'; ctx.fillStyle=bandColors[act-1];
                 ctx.fillText(freqLabels[act-1]+' Hz', 12, 22);
                 ctx.fillStyle='rgba(200,193,220,0.7)'; ctx.font='10px "Spline Sans Mono",ui-monospace,monospace';
-                ctx.fillText('az '+Math.round(a)+'°   dist '+d.toFixed(1)+'   gain '+g.toFixed(2), 12, 38);
+                ctx.fillText('az '+Math.round(a)+'°   dist '+d.toFixed(2)+'   gain '+g.toFixed(2), 12, 38);
             }
         }
         function spatialTick(){ if(!spatialActive) return; drawSpatial(); syncSelPanel(); requestAnimationFrame(spatialTick); }
