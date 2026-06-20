@@ -936,7 +936,8 @@ HTML = """<!DOCTYPE html>
         function updateSpectrum(){ const anySolo=soloState.some(s=>s);
             for(let i=1;i<=13;i++){ const bar=document.getElementById('spec'+i); if(!bar)continue;
                 const g=spVal('gain'+i); bar.style.height=Math.max(3,(g/3)*86)+'px';   // px (no %): evita blink; 86 ≈ 1.6× la altura anterior
-                bar.style.opacity=(anySolo&&!soloState[i-1])?'0.22':'0.95'; } }
+                bar.style.opacity=(anySolo&&!soloState[i-1])?'0.22':'0.95';
+                bar.style.boxShadow=(i===selectedBand)?'inset 0 0 0 2px #fff':'none'; } }   // mismo borde interno blanco que el nodo seleccionado en el radar
         function uiTick(){ updateSpectrum(); requestAnimationFrame(uiTick); }
         function spHit(mx,my){ let best=0,bestd=1e9; spNodes.forEach(n=>{ const dd=Math.hypot(mx-n.dx,my-n.dy); const t=Math.max(18,n.rr+6); if(dd<t&&dd<bestd){bestd=dd;best=n.i;} }); return best; }
         function spSend(i,a,d,force){ const now=Date.now(); if(!force&&now-lastSpSend<45)return; lastSpSend=now;
@@ -982,6 +983,23 @@ HTML = """<!DOCTYPE html>
             if(g){ g.value=v; show(g,'g'+i); } send('gain',i,parseFloat(v)); updateSpec(i,v);
             const gv=document.getElementById('sel-gain-val'); if(gv) gv.textContent=parseFloat(v).toFixed(2);
             if(mutedState[i-1]){ mutedState[i-1]=0; const mb=document.getElementById('m'+i); if(mb) mb.classList.remove('!bg-rose-500/80','!text-white','!border-rose-500/60'); }
+        }
+        // Ajuste de gain por banda arrastrando la barra del EQ superior (relativo, geared 2:1 → más control)
+        function setGain(i, v){ v=Math.max(0,Math.min(3, Math.round(v*100)/100)); const g=document.getElementById('gain'+i);
+            if(g){ g.value=v; show(g,'g'+i); } send('gain', i, v); updateSpec(i, v);
+            if(mutedState[i-1]){ mutedState[i-1]=0; const mb=document.getElementById('m'+i); if(mb) mb.classList.remove('!bg-rose-500/80','!text-white','!border-rose-500/60'); }
+            if(i===selectedBand){ const sg=document.getElementById('sel-gain'), sv=document.getElementById('sel-gain-val'); if(sg) sg.value=v; if(sv) sv.textContent=v.toFixed(2); }
+        }
+        function initEq(){ const spec=document.getElementById('spectrum'); if(!spec) return; spec.style.cursor='ns-resize';
+            let band=0, y0=0, g0=0; const PXG=86/3, GEAR=0.5;   // 2:1: movés ~2px de cursor por 1px de barra
+            const bandFrom=t=>{ const el=(t&&t.closest)?t.closest('[id^="spec"]'):null; if(!el)return 0; const m=el.id.match(/^spec(\\d+)$/); return m?+m[1]:0; };
+            spec.addEventListener('pointerdown',ev=>{ const b=bandFrom(ev.target); if(!b)return;
+                band=b; y0=ev.clientY; g0=spVal('gain'+b); try{spec.setPointerCapture(ev.pointerId);}catch(e){}
+                selectedBand=b; if(soloFollow) soloOnly(b); syncSelPanel();   // clic en el EQ también selecciona el nodo
+                ev.preventDefault(); });
+            spec.addEventListener('pointermove',ev=>{ if(!band)return; const dy=y0-ev.clientY; setGain(band, g0+(dy/PXG)*GEAR); });
+            const end=ev=>{ if(band){ try{spec.releasePointerCapture(ev.pointerId);}catch(e){} band=0; } };
+            spec.addEventListener('pointerup',end); spec.addEventListener('pointercancel',end);
         }
         function initSpatial(){ const c=document.getElementById('spatial-canvas'); if(!c) return; spSetupCanvas();
             c.addEventListener('pointerdown',ev=>{ const s=spScreen(ev); const w=spWorld(s[0],s[1]); const i=spHit(w[0],w[1]);
@@ -1902,6 +1920,7 @@ HTML = """<!DOCTYPE html>
             // Boot sensor stuff
             initSensorUI();
             initSpatial();
+            initEq();
             uiTick();
             loadConfigList();
             renderPresetCards();
