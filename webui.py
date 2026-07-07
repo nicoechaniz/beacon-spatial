@@ -13,7 +13,7 @@ Usage:
 
 from flask import Flask, render_template_string, request, jsonify
 from pythonosc.udp_client import SimpleUDPClient
-import os, json, glob
+import os, json, glob, re, time
 
 app = Flask(__name__)
 osc = SimpleUDPClient("127.0.0.1", 57120)
@@ -21,7 +21,9 @@ osc = SimpleUDPClient("127.0.0.1", 57120)
 osc_pd = SimpleUDPClient("127.0.0.1", 9001)
 
 CONFIG_DIR = os.path.expanduser("~/Projects/beacon-spatial/configs")
+RECORD_DIR = os.path.expanduser("~/Music/beacon")
 os.makedirs(CONFIG_DIR, exist_ok=True)
+os.makedirs(RECORD_DIR, exist_ok=True)
 
 BANDS = [
     {"freq": 40,   "color": "#c0392b", "default_gain": 1.2, "default_az": 180, "default_dist": 2.0, "default_q": 1.0,   "default_solo": 0},
@@ -573,10 +575,11 @@ HTML = """<!DOCTYPE html>
         }
         
         function sendGlobal(param, value) {
+            const v = (typeof value === 'number' && !isNaN(value)) ? value : String(value);
             fetch('/control', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({address: '/beacon/' + param, value: parseFloat(value)})
+                body: JSON.stringify({address: '/beacon/' + param, value: v})
             });
         }
         
@@ -597,8 +600,8 @@ HTML = """<!DOCTYPE html>
             const span = btn.querySelector('span') || btn;
             
             if (recording) {
-                const label = 'session_' + new Date().toISOString().slice(0,19).replace(/[:T]/g,'-');
-                sendGlobal('record/start', label);
+                const preset = document.getElementById('load-select').value || 'session';
+                sendGlobal('record/start', preset);
                 btn.classList.add('!bg-red-600', '!border-red-600', '!text-white');
                 span.textContent = 'STOP';
             } else {
@@ -712,6 +715,7 @@ HTML = """<!DOCTYPE html>
             }
         }
 
+<<<<<<< HEAD
         // === Sensor Logic (kept and enhanced) ===
         let currentSensors = {};
         // Unwrap state for yaw (alpha). The browser delivers alpha as a
@@ -758,6 +762,22 @@ HTML = """<!DOCTYPE html>
                 startSensorListeners();
             }).catch(err => {
                 if (statusEl) statusEl.innerHTML = '<i class="fa-solid fa-circle text-red-400 text-[8px]"></i> <span>Permission denied</span>';
+=======
+        function saveConfig() {
+            let name = document.getElementById('save-name').value.trim();
+            if (!name) {
+                name = document.getElementById('load-select').value;
+                if (!name) { setStatus('Enter a name or load a preset first'); return; }
+                if (!confirm('Overwrite "' + name + '"?')) return;
+            }
+            fetch('/save_config', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({name: name, state: gatherState()})
+            }).then(r => r.json()).then(data => {
+                setStatus(data.ok ? 'Saved: ' + name : 'Error');
+                if (data.ok) loadConfigList();
+>>>>>>> 9fbe782 (fix: recording path defaults to ~/Music/beacon and uses preset name from UI)
             });
         }
 
@@ -1702,6 +1722,7 @@ def index():
 def control():
     data = request.get_json()
     addr = data.get("address", "")
+<<<<<<< HEAD
     raw = data.get("value", 0)
     # OSC value must be numeric; coerce strings to float when possible.
     # record/start|stop can carry a non-numeric label, so we forward a
@@ -1716,6 +1737,20 @@ def control():
         osc_pd.send_message(addr, val)
     except Exception:
         pass  # PD replica not running — silently ignore
+=======
+    val = data.get("value", 0)
+    if addr == "/beacon/record/start":
+        label = str(val) if val is not None else "session"
+        safe = re.sub(r"[^A-Za-z0-9._-]+", "_", label).strip("_") or "session"
+        ts = time.strftime("%Y%m%d-%H%M%S")
+        path = os.path.join(RECORD_DIR, f"{safe}_{ts}.wav")
+        osc.send_message(addr, path)
+        return jsonify({"ok": True, "path": path})
+    try:
+        osc.send_message(addr, float(val))
+    except (TypeError, ValueError):
+        osc.send_message(addr, 1.0 if val else 0.0)
+>>>>>>> 9fbe782 (fix: recording path defaults to ~/Music/beacon and uses preset name from UI)
     return jsonify({"ok": True})
 
 @app.route("/control/batch", methods=["POST"])

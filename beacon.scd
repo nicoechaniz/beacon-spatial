@@ -247,9 +247,10 @@ server.doWhenBooted({
   // Recording control
   oscdefs = oscdefs.add(
     OSCdef(\beacon_record_start, { |msg|
-      var path = "/home/nicolas/Projects/beacon-spatial/beacon_record_%_%.wav".format(
-        Date.localtime.stamp, msg[1].asString
-      );
+      var path = msg[1].asString;
+      if(path == "", {
+        path = "/home/nicolas/Music/beacon/beacon_record_%.wav".format(Date.localtime.stamp);
+      });
       server.record(path: path, numChannels: 2);
       "[RECORD] Started: %".format(path).postln;
     }, '/beacon/record/start')
