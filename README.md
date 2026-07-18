@@ -53,6 +53,7 @@ Three tabs: Manual / Sensors / Presets. Changes go live over OSC to the 13-band 
 | `beacon-osc.json` | Open Stage Control template (see `beacon-osc.ANNOTATIONS.md`) |
 | `harmonic_beacon_2026_05_13_session.wav` | File-mode source loop (mono 48 kHz; large, often not in git) |
 | `configs/` | JSON presets (`bands[]` + mix/master; optional sensor_mappings) |
+| `assets/nature-samples/` | Nature WAVs for the sample layer — samples live **outside git** (ignored); `MANIFEST.md` (tracked) lists each file with size, SHA-256, and provenance |
 | `requirements.txt`, `venv/` | Python deps for the web UI |
 | `legacy/` | Frozen Pure Data stack (patches, replica, bridge, launchers, OSC tests) — not the active path |
 | `docs/research/` | Historical multi-agent engine-selection notes (May 2026) |

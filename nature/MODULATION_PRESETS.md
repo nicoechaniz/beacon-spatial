@@ -113,6 +113,6 @@ from nature.sample_modulation_manager import SampleModulationManager
 
 mgr = SampleModulationManager(transport=rec)
 mgr.apply_preset("spectrum-projection")
-mgr.nature_load("/absolute/path/to/sample.wav")
+mgr.nature_load("~/Projects/beacon-spatial/assets/nature-samples/dominicalito_frogs_pond.wav")
 mgr.nature_gain(0.5)
 ```

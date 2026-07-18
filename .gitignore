@@ -6,3 +6,6 @@ __pycache__/
 *.mp3
 configs/*.json
 !configs/version_1.json
+# Nature sample WAVs live outside git; only the manifest is tracked
+assets/nature-samples/*
+!assets/nature-samples/MANIFEST.md
