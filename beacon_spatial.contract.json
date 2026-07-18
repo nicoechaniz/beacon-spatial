@@ -15,7 +15,7 @@
   },
   "instrument": {
     "instrument_id": "beacon-spatial",
-    "description": "Thirteen-band binaural spatializer for a live Harmonic Beacon analog signal: twelve band-pass bands plus one high-pass band.",
+    "description": "Thirteen-band binaural spatializer for a live Harmonic Beacon analog signal, plus a native looping nature-WAV layer summed onto the stereo output.",
     "native_namespace_rule": "The existing /beacon namespace and its indexed band controls are authoritative. This instrument is not a common gain/pan/phase voice model."
   },
   "stream_identity": {
@@ -220,9 +220,53 @@
       "smoothing": "No control smoothing.",
       "read": true,
       "write": true
+    },
+    {
+      "name": "nature_load",
+      "address_pattern": "/beacon/nature/load",
+      "parameters": {},
+      "arguments": [
+        {
+          "name": "path",
+          "type": "string",
+          "meaning": "On write, an absolute local path to a readable, non-empty mono or stereo WAV. On state read, the active standardized path, or an empty string when no nature buffer is active. Invalid paths are rejected without replacing the active layer."
+        }
+      ],
+      "lag_ms": 0.0,
+      "smoothing": "No value smoothing; a valid replacement becomes active only after its stereo playback buffer is ready.",
+      "read": true,
+      "write": true
+    },
+    {
+      "name": "nature_gain",
+      "address_pattern": "/beacon/nature/gain",
+      "parameters": {},
+      "arguments": [
+        {
+          "name": "gain",
+          "type": "float32",
+          "range": [
+            0.0,
+            1.0
+          ],
+          "polarity": "Bounded linear amplitude: 0 = silent and 1 = unity. The receiver and SynthDef both clamp to this range."
+        }
+      ],
+      "lag_ms": 50.0,
+      "smoothing": "Exponential-style gain lag in the sample-player SynthDef via lag(0.05).",
+      "read": true,
+      "write": true
     }
   ],
   "commands": [
+    {
+      "name": "nature_stop",
+      "address_pattern": "/beacon/nature/stop",
+      "parameters": {},
+      "arguments": [],
+      "read": false,
+      "write": true
+    },
     {
       "name": "record_start",
       "address_pattern": "/beacon/record/start",
@@ -261,7 +305,7 @@
     "request_args": [
       "expected_contract_id"
     ],
-    "response": "One atomic bundle beginning with /beacon/state/begin(stream_id, state_seq, contract_id), followed by current values for all 66 readable native addresses, and ending with /beacon/state/end(stream_id, state_seq).",
+    "response": "One atomic bundle beginning with /beacon/state/begin(stream_id, state_seq, contract_id), followed by current values for all 68 readable native addresses (66 core spatial controls plus nature load path and gain), and ending with /beacon/state/end(stream_id, state_seq).",
     "periodic_broadcast": false,
     "connect_rule": "After a matching /beacon/hello, a client MUST request /beacon/state with the accepted contract_id and complete the dump before presenting or modifying instrument state.",
     "mismatch_rule": "A missing or mismatched expected_contract_id produces no state dump."
@@ -272,6 +316,6 @@
     "instrument_gating": "The current UDP adapter cannot prove client identity across datagrams, so it preserves legacy writes from any source admitted by the configured listen rule; adapters that can identify negotiated clients MUST ignore writes from clients without a matching handshake.",
     "monotonic_discard": "Within one stream_id, discard state updates with state_seq less than or equal to the last applied state_seq, except members of the same atomic state dump.",
     "stream_change": "A new stream_id clears cached state and requires a fresh dump.",
-    "argument_validation": "Clients MUST send the declared OSC types and finite in-range numeric values. The engine preserves its existing unclamped OSC write semantics."
+    "argument_validation": "Clients MUST send the declared OSC types and finite in-range numeric values. Existing spatial controls preserve their unclamped OSC write semantics; nature gain is clamped to 0..1, and nature load rejects non-absolute, missing, unreadable, non-WAV, empty, or non-mono/stereo files without replacing the active layer."
   }
 }

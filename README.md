@@ -2,7 +2,7 @@
 
 13-band binaural spatializer for the Harmonic Beacon (40 Hz natural harmonic series). Each band has independent gain, azimuth, distance, and (for BPF bands) Q, rendered over headphones via ATK HRTF.
 
-**Current engine:** SuperCollider (`beacon.scd`) — 12 BPF + 1 HPF @ 1800 Hz, ATK `FoaPanB` / `FoaDecode` with Listen kernels @ 48 kHz. OSC control on port **57120**. Flask web UI on **:5050**.
+**Current engine:** SuperCollider (`beacon.scd`) — 12 BPF + 1 HPF @ 1800 Hz, ATK `FoaPanB` / `FoaDecode` with Listen kernels @ 48 kHz, plus a native looping mono/stereo nature-WAV layer. OSC control on port **57120**. Flask web UI on **:5050**.
 
 ## Quick Start
 
@@ -46,7 +46,7 @@ Three tabs: Manual / Sensors / Presets. Changes go live over OSC to the 13-band 
 | File | Role |
 |------|------|
 | `start-beacon.sh` | Canonical launcher (`pw-jack scsynth`, sclang, Flask, optional HTTPS) |
-| `beacon.scd` | Main engine: 13 bands, ATK FOA binaural, 69 OSCdefs on 57120 |
+| `beacon.scd` | Main engine: 13 bands, ATK FOA binaural + nature WAV layer, 74 OSCdefs on 57120 |
 | `legacy/beacon_pd_replica.scd` | Optional 6-band PD-algorithm replica (OSC on 9001) |
 | `legacy/start-beacon-pd.sh` | Starts the replica alongside the main engine |
 | `webui.py` | Flask control surface (:5050); HTTP → OSC to 57120 (and 9001 if up) |
@@ -78,6 +78,7 @@ scsynth -u 57110 via pw-jack
     | source → 12× BPF + HPF@1800 → solo → dry Mix*(1-mix)
     |                              → wet FoaPanB(az,1/dist) → FoaDecode(Listen)
     | → (wet+dry)*master → Out.ar(0, 2)
+    | nature WAV → sample_player(gain, release) ───────────→ Out.ar(0, 2)
     v
 PipeWire/JACK → headphones (binaural)
 ```
@@ -91,7 +92,7 @@ No reverb, no LFOs on the main engine (static spatialization by design).
 
 ## OSC (summary)
 
-One float per message; band index is **in the address**, not an argument.
+Continuous controls take one float per message; band index is **in the address**, not an argument. Nature loading takes one absolute local WAV path string.
 
 | Address | Range | Notes |
 |---------|-------|-------|
@@ -102,6 +103,9 @@ One float per message; band index is **in the address**, not an argument.
 | `/beacon/solo/N` | 0/1 | N = 1..13 |
 | `/beacon/mix` | 0..1 | wet/dry balance (not separate wet/dry) |
 | `/beacon/master` | 0..3 | |
+| `/beacon/nature/load` | absolute WAV path | loop a readable mono/stereo local WAV; invalid loads leave the active layer unchanged |
+| `/beacon/nature/gain` | 0..1 | bounded linear gain with 50 ms lag |
+| `/beacon/nature/stop` | — | release playback and free the active sample synth/buffer |
 | `/beacon/record/start` | path optional | start WAV record |
 | `/beacon/record/stop` | — | |
 | `/beacon/reset` | — | defaults |

@@ -9,11 +9,16 @@
 //   -> FoaDecode (Listen kernels, 48000/512) -> wet
 //   -> dry = Mix(filter outputs * gains) * (1-mix)
 //   -> (wet + dry) * master -> Out.ar(0,2)
+// Nature WAV (mono duplicated to stereo, or stereo preserved)
+//   -> looping \sample_player with bounded linear gain + release envelope
+//   -> summed independently onto the same stereo output bus
 //
 // OSC (via OSCdef): /beacon/gain/N, /beacon/az/N, /beacon/dist/N (N=1..13),
 //                   /beacon/q/N (N=1..12), /beacon/solo/N (N=1..13),
-//                   /beacon/mix, /beacon/master
-// Lag 0.05 only on gain and azimuth controls per spec.
+//                   /beacon/mix, /beacon/master,
+//                   /beacon/nature/load, /beacon/nature/gain, /beacon/nature/stop
+// The core 13-band DSP keeps lag(0.05) only on band gain and azimuth;
+// the independent nature-layer gain also has a 50 ms safety lag.
 // Server: 2in/2out, 48000Hz. NO LFOs, NO effects (no Proximity/NFC), NO reverb.
 // ONLY FoaPanB + 1/dist scaling for spatialization.
 //
@@ -35,11 +40,11 @@
 //   Band 13:    HPF 1800Hz+ (no upper limit)
 
 (
-var buf, decoder, synth, oscdefs, helloRoutine;
+var buf, decoder, synth, oscdefs, helloRoutine, natureBuf, natureSynth;
 var audioFilePath = "/home/nicolas/Projects/beacon-spatial/harmonic_beacon_2026_05_13_session.wav";
 var useFile = "BEACON_SOURCE".getenv == "file";
 var defName = if (useFile) { \beacon_file } { \beacon_live };
-var contractId = "8bee8e926496584af114d78ebaa73fc5";
+var contractId = "eaad56d9081d01c4a63646e0055b37b7";
 var producerVersion = "1.0.0";
 var streamId = 4.collect { 65536.rand.asHexString(4).toLower }.join;
 var stateSeq = 0;
@@ -100,10 +105,12 @@ server.doWhenBooted({
   var mix0 = 0.85, master0 = 0.9;
   var cond = Condition.new;
   var readableControls = [];
+  var natureGain = 0.0, naturePath = "", natureLoadGeneration = 0;
   var knownClients = List.new;
   var stateDumpQueue = List.new;
   var stateDumpBusy = false;
   var setControl, rememberClient, sendHello, sendNextStateDump;
+  var releaseNature, loadNature;
   var makeBeaconDef = { |name, srcFunc|
     SynthDef(name, {
       arg out = 0, bufnum = 0;
@@ -203,8 +210,22 @@ server.doWhenBooted({
     makeBeaconDef.value(defName, { |bufnum| SoundIn.ar(0) });
   };
 
+  // Nature buffers are always loaded as two channels: mono WAVs duplicate
+  // channel 0 and stereo WAVs preserve channels 0/1. This keeps PlayBuf's
+  // compile-time channel count correct for both supported source formats.
+  SynthDef(\sample_player, {
+    arg out = 0, bufnum = 0, gain = 0.0, gate = 1, release = 0.1;
+    var sig = PlayBuf.ar(2, bufnum, BufRateScale.kr(bufnum), loop: 1);
+    var envelope = EnvGen.kr(
+      Env.asr(0.01, 1.0, release.max(0.01)),
+      gate,
+      doneAction: Done.freeSelf
+    );
+    Out.ar(out, sig * gain.clip(0.0, 1.0).lag(0.05) * envelope);
+  }).add;
+
   server.sync;
-  "SynthDef \\% added.".format(defName).postln;
+  "SynthDefs \\% and \\sample_player added.".format(defName).postln;
 
   // Instantiate
   if (useFile) {
@@ -214,8 +235,96 @@ server.doWhenBooted({
   };
   "Synth active: nodeID=%  (headphones required for binaural)".format(synth.nodeID).postln;
 
+  releaseNature = { |node|
+    if (node.notNil) { node.set(\gate, 0) };
+  };
+
+  loadNature = { |rawPath|
+    var path = rawPath.standardizePath;
+    var pathName = PathName(path);
+    var soundFile, sourceChannels, sourceFrames, loadGeneration;
+    var valid = true;
+
+    if (PathName(rawPath).isAbsolutePath.not) {
+      "[NATURE] Rejected non-absolute local path: %".format(rawPath).warn;
+      valid = false;
+    };
+    if (valid and: { pathName.extension.toLower != "wav" }) {
+      "[NATURE] Rejected non-WAV path: %".format(path).warn;
+      valid = false;
+    };
+    if (valid and: { File.exists(path).not }) {
+      "[NATURE] Rejected missing or unreadable path: %".format(path).warn;
+      valid = false;
+    };
+
+    if (valid) {
+      soundFile = SoundFile.new;
+      if (soundFile.openRead(path)) {
+        sourceChannels = soundFile.numChannels;
+        sourceFrames = soundFile.numFrames;
+        soundFile.close;
+        if ([1, 2].includes(sourceChannels).not) {
+          "[NATURE] Rejected WAV with % channels (only mono/stereo supported): %"
+            .format(sourceChannels, path).warn;
+          valid = false;
+        };
+        if (sourceFrames <= 0) {
+          "[NATURE] Rejected empty WAV: %".format(path).warn;
+          valid = false;
+        };
+      } {
+        "[NATURE] Rejected invalid or unreadable WAV: %".format(path).warn;
+        valid = false;
+      };
+    };
+
+    if (valid) {
+      natureLoadGeneration = natureLoadGeneration + 1;
+      loadGeneration = natureLoadGeneration;
+      "[NATURE] Loading: %".format(path).postln;
+      Buffer.readChannel(
+        server,
+        path,
+        channels: if (sourceChannels == 1) { [0, 0] } { [0, 1] },
+        action: { |newBuf|
+          var oldSynth, newSynth;
+          if (loadGeneration != natureLoadGeneration) {
+            newBuf.free;
+            "[NATURE] Discarded superseded load: %".format(path).postln;
+          } {
+            oldSynth = natureSynth;
+            newSynth = Synth.after(
+              synth,
+              \sample_player,
+              [\bufnum, newBuf.bufnum, \gain, natureGain]
+            );
+            newSynth.onFree {
+              newBuf.free;
+              if (natureSynth === newSynth) {
+                natureSynth = nil;
+                natureBuf = nil;
+                naturePath = "";
+                stateSeq = stateSeq + 1;
+              };
+            };
+            natureBuf = newBuf;
+            natureSynth = newSynth;
+            naturePath = path;
+            stateSeq = stateSeq + 1;
+            releaseNature.value(oldSynth);
+            "[NATURE] Active: % (source channels=%, buffer channels=%)"
+              .format(path, sourceChannels, newBuf.numChannels).postln;
+          };
+        }
+      );
+    };
+  };
+
   // The synth's NamedControls remain the only mutable parameter state. The
   // language queries them for dumps instead of maintaining a duplicate model.
+  // Nature load/gain are language-owned because they remain readable even when
+  // no sample synth exists.
   13.do { |i|
     var n = i + 1;
     readableControls = readableControls.add([("gain" ++ n).asSymbol, "/beacon/gain/" ++ n]);
@@ -254,8 +363,9 @@ server.doWhenBooted({
   };
 
   // Serialize dump queries so one /n_set reply maps to exactly one requester.
-  // Each query reads all 66 NamedControls from scsynth in one response and
-  // emits begin, values, and end as members of one atomic OSC bundle.
+  // Each query reads all 66 core NamedControls from scsynth in one response,
+  // appends the two language-owned nature fields, and emits begin, values, and
+  // end as members of one atomic OSC bundle.
   sendNextStateDump = {
     var request, recipient, dumpSeq;
     if (stateDumpQueue.isEmpty) {
@@ -274,6 +384,8 @@ server.doWhenBooted({
         readableControls.do { |spec|
           bundle = bundle.add([spec[1], values[spec[0]]]);
         };
+        bundle = bundle.add(["/beacon/nature/load", naturePath]);
+        bundle = bundle.add(["/beacon/nature/gain", natureGain]);
         bundle = bundle.add(["/beacon/state/end", streamId, dumpSeq]);
         recipient.sendBundle(0.0, *bundle);
         stateDumpBusy = false;
@@ -283,7 +395,7 @@ server.doWhenBooted({
     };
   };
 
-  // OSCdefs: the 69 native controls plus hello-request and state-request.
+  // OSCdefs: the 72 native addresses plus hello-request and state-request.
   oscdefs = [];
   13.do { |i|
     var n = i + 1;
@@ -354,6 +466,55 @@ server.doWhenBooted({
     )
   );
 
+  // Nature sample layer. Loading is restricted to readable, absolute local
+  // mono/stereo WAV paths. A valid replacement is swapped in only after its
+  // stereo buffer is ready; superseded asynchronous loads free themselves.
+  oscdefs = oscdefs.add(
+    OSCdef(\beacon_nature_load, { |msg|
+      // sclang decodes a standard OSC `s` argument as Symbol, while direct
+      // language calls may still supply String. Coerce only those two textual
+      // types so numeric/blob payloads cannot become path strings implicitly.
+      if ((msg.size > 1) and: {
+        msg[1].isKindOf(String) or: { msg[1].isKindOf(Symbol) }
+      }) {
+        "[NATURE] Accepted OSC load argument type: %."
+          .format(msg[1].class).postln;
+        loadNature.value(msg[1].asString);
+      } {
+        "[NATURE] Rejected load without one OSC string path.".warn;
+      };
+    }, '/beacon/nature/load', oscSourceFilter, oscListenPort)
+  );
+  oscdefs = oscdefs.add(
+    OSCdef(\beacon_nature_gain, { |msg|
+      var requestedGain;
+      if ((msg.size > 1) and: { msg[1].isNumber }) {
+        requestedGain = msg[1].asFloat;
+        if (requestedGain.isNaN or: { requestedGain.abs > 1e12 }) {
+          "[NATURE] Rejected non-finite gain.".warn;
+        } {
+          natureGain = requestedGain.clip(0.0, 1.0);
+          if (natureSynth.notNil) { natureSynth.set(\gain, natureGain) };
+          stateSeq = stateSeq + 1;
+        };
+      } {
+        "[NATURE] Rejected gain without one numeric OSC argument.".warn;
+      };
+    }, '/beacon/nature/gain', oscSourceFilter, oscListenPort)
+  );
+  oscdefs = oscdefs.add(
+    OSCdef(\beacon_nature_stop, { |msg|
+      var oldSynth = natureSynth;
+      natureLoadGeneration = natureLoadGeneration + 1;
+      natureSynth = nil;
+      natureBuf = nil;
+      naturePath = "";
+      stateSeq = stateSeq + 1;
+      releaseNature.value(oldSynth);
+      "[NATURE] Stopped.".postln;
+    }, '/beacon/nature/stop', oscSourceFilter, oscListenPort)
+  );
+
   // Recording control
   oscdefs = oscdefs.add(
     OSCdef(\beacon_record_start, { |msg|
@@ -422,13 +583,16 @@ server.doWhenBooted({
     }
   }).play(AppClock);
 
-  "OSCdefs registered: 69 native controls + hello request + state request (71 total).".postln;
+  "OSCdefs registered: 72 native addresses + hello request + state request (74 total).".postln;
 
   // Cleanup hooks
   ServerQuit.add({
     "ServerQuit: freeing beacon resources...".postln;
     if (helloRoutine.notNil) { helloRoutine.stop };
     oscdefs.do { |d| d.free };
+    natureLoadGeneration = natureLoadGeneration + 1;
+    if (natureSynth.notNil) { natureSynth.free };
+    if (natureBuf.notNil) { natureBuf.free };
     if (synth.notNil) { synth.free };
     if (decoder.notNil) { decoder.free; "  decoder kernel buffers freed".postln; };
     if (buf.notNil) { buf.free; "  audio buffer freed".postln; };
