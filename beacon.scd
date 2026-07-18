@@ -18,11 +18,12 @@
 // ONLY FoaPanB + 1/dist scaling for spatialization.
 //
 // Usage:
-//   ./start-beacon.sh
+//   ./start-beacon.sh [--osc-host HOST] [--osc-port PORT]
 //   (or manually: pw-jack scsynth -u 57110 -i 2 -o 2 &
+//                 BEACON_OSC_HOST=127.0.0.1 BEACON_OSC_PORT=57120 \
 //                 QT_QPA_PLATFORM=offscreen sclang -u 57120 beacon.scd)
 //
-// Web UI (Flask) sends OSC /beacon/* to sclang:57120 (OSCdef receivers).
+// Web UI (Flask) sends OSC /beacon/* to the configured sclang OSC port.
 // OSCdefs call synth.set(...) which sends /n_set to scsynth:57110.
 //
 // Requires: ATK quark + kernels installed at ~/.local/share/ATK/kernels
@@ -34,13 +35,26 @@
 //   Band 13:    HPF 1800Hz+ (no upper limit)
 
 (
-var buf, decoder, synth, oscdefs;
+var buf, decoder, synth, oscdefs, helloRoutine;
 var audioFilePath = "/home/nicolas/Projects/beacon-spatial/harmonic_beacon_2026_05_13_session.wav";
 var useFile = "BEACON_SOURCE".getenv == "file";
 var defName = if (useFile) { \beacon_file } { \beacon_live };
+var contractId = "8bee8e926496584af114d78ebaa73fc5";
+var producerVersion = "1.0.0";
+var streamId = 4.collect { 65536.rand.asHexString(4).toLower }.join;
+var stateSeq = 0;
+var oscListenHost = "BEACON_OSC_HOST".getenv ? "127.0.0.1";
+var oscListenPort = ("BEACON_OSC_PORT".getenv ? "57120").asInteger;
+// sclang opens UDP ports on all interfaces. Apply the configured bind rule at
+// responder dispatch: loopback by default, or any source for 0.0.0.0 / "*".
+var oscSourceFilter = if (["0.0.0.0", "*"].includes(oscListenHost)) {
+  nil
+} {
+  NetAddr(oscListenHost, nil)
+};
 
 // Use pre-started scsynth (from start-beacon.sh) on standard port 57110.
-// sclang listens on 57120 (default or -u) for OSCdef messages from web UI.
+// start-beacon.sh passes the configured sclang OSC port with -u.
 var server = Server(\beacon, NetAddr("127.0.0.1", 57110));
 Server.default = server;
 
@@ -65,11 +79,11 @@ if (useFile) {
 };
 "".postln;
 
-// OSC: /beacon/* messages are received by sclang (OSCdef) on its lang port (57120).
+// OSC: /beacon/* messages are received by sclang (OSCdef) on the configured port.
 // They are translated to .set() calls on the running synth (which talks to scsynth on 57110).
-"Send /beacon/gain/N etc OSC to sclang port 57120 (or sclang's -u port).".postln;
+"OSC listen rule: %:%".format(oscListenHost, oscListenPort).postln;
 "scsynth (audio engine) on 57110 (external, started by start-beacon.sh).".postln;
-"Launch via: ./start-beacon.sh [--live|--file]".postln;
+"Launch via: ./start-beacon.sh [--live|--file] [--osc-host HOST] [--osc-port PORT]".postln;
 "".postln;
 
 // --- Attach to running scsynth (no boot attempt; script starts scsynth first) ---
@@ -85,6 +99,11 @@ server.doWhenBooted({
   var defaultSolo  = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
   var mix0 = 0.85, master0 = 0.9;
   var cond = Condition.new;
+  var readableControls = [];
+  var knownClients = List.new;
+  var stateDumpQueue = List.new;
+  var stateDumpBusy = false;
+  var setControl, rememberClient, sendHello, sendNextStateDump;
   var makeBeaconDef = { |name, srcFunc|
     SynthDef(name, {
       arg out = 0, bufnum = 0;
@@ -195,53 +214,144 @@ server.doWhenBooted({
   };
   "Synth active: nodeID=%  (headphones required for binaural)".format(synth.nodeID).postln;
 
-  // OSCdefs: 13*3 band + 12 q + 13 solo + mix + master = 66 total
+  // The synth's NamedControls remain the only mutable parameter state. The
+  // language queries them for dumps instead of maintaining a duplicate model.
+  13.do { |i|
+    var n = i + 1;
+    readableControls = readableControls.add([("gain" ++ n).asSymbol, "/beacon/gain/" ++ n]);
+    readableControls = readableControls.add([("az" ++ n).asSymbol, "/beacon/az/" ++ n]);
+    readableControls = readableControls.add([("dist" ++ n).asSymbol, "/beacon/dist/" ++ n]);
+    readableControls = readableControls.add([("solo" ++ n).asSymbol, "/beacon/solo/" ++ n]);
+    if (i < 12) {
+      readableControls = readableControls.add([("q" ++ n).asSymbol, "/beacon/q/" ++ n]);
+    };
+  };
+  readableControls = readableControls.add([\mix, "/beacon/mix"]);
+  readableControls = readableControls.add([\master, "/beacon/master"]);
+
+  setControl = { |name, value|
+    synth.set(name, value);
+    stateSeq = stateSeq + 1;
+  };
+
+  rememberClient = { |addr|
+    var known = knownClients.detect { |client|
+      (client.addr == addr.addr) and: { client.port == addr.port }
+    };
+    if (known.isNil) { knownClients.add(addr) };
+  };
+
+  sendHello = { |addr|
+    addr.sendMsg(
+      "/beacon/hello",
+      "beacon-spatial",
+      streamId,
+      "1.0.0",
+      producerVersion,
+      contractId,
+      stateSeq
+    );
+  };
+
+  // Serialize dump queries so one /n_set reply maps to exactly one requester.
+  // Each query reads all 66 NamedControls from scsynth in one response and
+  // emits begin, values, and end as members of one atomic OSC bundle.
+  sendNextStateDump = {
+    var request, recipient, dumpSeq;
+    if (stateDumpQueue.isEmpty) {
+      stateDumpBusy = false;
+    } {
+      stateDumpBusy = true;
+      request = stateDumpQueue.removeAt(0);
+      recipient = request[0];
+      dumpSeq = request[1];
+      OSCFunc({ |reply|
+        var values = IdentityDictionary.new;
+        var bundle = [["/beacon/state/begin", streamId, dumpSeq, contractId]];
+        reply[2..].clump(2).do { |pair|
+          values.put(pair[0].asSymbol, pair[1].asFloat);
+        };
+        readableControls.do { |spec|
+          bundle = bundle.add([spec[1], values[spec[0]]]);
+        };
+        bundle = bundle.add(["/beacon/state/end", streamId, dumpSeq]);
+        recipient.sendBundle(0.0, *bundle);
+        stateDumpBusy = false;
+        sendNextStateDump.value;
+      }, '/n_set', server.addr, argTemplate: [synth.nodeID]).oneShot;
+      server.sendMsg(\s_get, synth.nodeID, *readableControls.collect { |spec| spec[0] });
+    };
+  };
+
+  // OSCdefs: the 69 native controls plus hello-request and state-request.
   oscdefs = [];
   13.do { |i|
     var n = i + 1;
     oscdefs = oscdefs.add(
       OSCdef(
         ("beacon_gain_" ++ n).asSymbol,
-        { |msg| synth.set(("gain" ++ n).asSymbol, msg[1].asFloat) },
-        "/beacon/gain/" ++ n
+        { |msg| setControl.value(("gain" ++ n).asSymbol, msg[1].asFloat) },
+        "/beacon/gain/" ++ n,
+        oscSourceFilter,
+        oscListenPort
       )
     );
     oscdefs = oscdefs.add(
       OSCdef(
         ("beacon_az_" ++ n).asSymbol,
-        { |msg| synth.set(("az" ++ n).asSymbol, msg[1].asFloat) },
-        "/beacon/az/" ++ n
+        { |msg| setControl.value(("az" ++ n).asSymbol, msg[1].asFloat) },
+        "/beacon/az/" ++ n,
+        oscSourceFilter,
+        oscListenPort
       )
     );
     oscdefs = oscdefs.add(
       OSCdef(
         ("beacon_dist_" ++ n).asSymbol,
-        { |msg| synth.set(("dist" ++ n).asSymbol, msg[1].asFloat) },
-        "/beacon/dist/" ++ n
+        { |msg| setControl.value(("dist" ++ n).asSymbol, msg[1].asFloat) },
+        "/beacon/dist/" ++ n,
+        oscSourceFilter,
+        oscListenPort
       )
     );
     if (i < 12) {
       oscdefs = oscdefs.add(
         OSCdef(
           ("beacon_q_" ++ n).asSymbol,
-          { |msg| synth.set(("q" ++ n).asSymbol, msg[1].asFloat) },
-          "/beacon/q/" ++ n
+          { |msg| setControl.value(("q" ++ n).asSymbol, msg[1].asFloat) },
+          "/beacon/q/" ++ n,
+          oscSourceFilter,
+          oscListenPort
         )
       );
     };
     oscdefs = oscdefs.add(
       OSCdef(
         ("beacon_solo_" ++ n).asSymbol,
-        { |msg| synth.set(("solo" ++ n).asSymbol, msg[1].asFloat) },
-        "/beacon/solo/" ++ n
+        { |msg| setControl.value(("solo" ++ n).asSymbol, msg[1].asFloat) },
+        "/beacon/solo/" ++ n,
+        oscSourceFilter,
+        oscListenPort
       )
     );
   };
   oscdefs = oscdefs.add(
-    OSCdef(\beacon_mix, { |msg| synth.set(\mix, msg[1].asFloat) }, '/beacon/mix')
+    OSCdef(
+      \beacon_mix,
+      { |msg| setControl.value(\mix, msg[1].asFloat) },
+      '/beacon/mix',
+      oscSourceFilter,
+      oscListenPort
+    )
   );
   oscdefs = oscdefs.add(
-    OSCdef(\beacon_master, { |msg| synth.set(\master, msg[1].asFloat) }, '/beacon/master')
+    OSCdef(
+      \beacon_master,
+      { |msg| setControl.value(\master, msg[1].asFloat) },
+      '/beacon/master',
+      oscSourceFilter,
+      oscListenPort
+    )
   );
 
   // Recording control
@@ -252,14 +362,16 @@ server.doWhenBooted({
         path = "/home/nicolas/Music/beacon/beacon_record_%.wav".format(Date.localtime.stamp);
       });
       server.record(path: path, numChannels: 2);
+      stateSeq = stateSeq + 1;
       "[RECORD] Started: %".format(path).postln;
-    }, '/beacon/record/start')
+    }, '/beacon/record/start', oscSourceFilter, oscListenPort)
   );
   oscdefs = oscdefs.add(
     OSCdef(\beacon_record_stop, { |msg|
       server.stopRecording;
+      stateSeq = stateSeq + 1;
       "[RECORD] Stopped.".postln;
-    }, '/beacon/record/stop')
+    }, '/beacon/record/stop', oscSourceFilter, oscListenPort)
   );
 
   // Reset control
@@ -267,25 +379,55 @@ server.doWhenBooted({
     OSCdef(\beacon_reset, { |msg|
       13.do { |i|
         var n = i + 1;
-        synth.set(("gain" ++ n).asSymbol, defaultGains[i]);
-        synth.set(("az" ++ n).asSymbol, defaultAz[i]);
-        synth.set(("dist" ++ n).asSymbol, defaultDist[i]);
-        synth.set(("solo" ++ n).asSymbol, 0);
+        setControl.value(("gain" ++ n).asSymbol, defaultGains[i]);
+        setControl.value(("az" ++ n).asSymbol, defaultAz[i]);
+        setControl.value(("dist" ++ n).asSymbol, defaultDist[i]);
+        setControl.value(("solo" ++ n).asSymbol, 0);
         if (i < 12) {
-          synth.set(("q" ++ n).asSymbol, defaultRQs[i]);
+          setControl.value(("q" ++ n).asSymbol, defaultRQs[i]);
         };
       };
-      synth.set(\mix, mix0);
-      synth.set(\master, master0);
+      setControl.value(\mix, mix0);
+      setControl.value(\master, master0);
       "[RESET] All parameters restored to defaults.".postln;
-    }, '/beacon/reset')
+    }, '/beacon/reset', oscSourceFilter, oscListenPort)
   );
 
-  "OSCdefs registered: 39 band + 12 q + 13 solo + mix + master + record + reset (69 total).".postln;
+  // Contract handshake and on-connect state synchronization.
+  oscdefs = oscdefs.add(
+    OSCdef(\beacon_hello_request, { |msg, time, addr|
+      rememberClient.value(addr);
+      sendHello.value(addr);
+    }, '/beacon/hello/request', oscSourceFilter, oscListenPort)
+  );
+  oscdefs = oscdefs.add(
+    OSCdef(\beacon_state_request, { |msg, time, addr|
+      var expectedContractId = if (msg.size > 1) { msg[1].asString } { "" };
+      rememberClient.value(addr);
+      if (expectedContractId == contractId) {
+        stateSeq = stateSeq + 1;
+        stateDumpQueue.add([addr, stateSeq]);
+        if (stateDumpBusy.not) { sendNextStateDump.value };
+      } {
+        "[STATE] Ignored dump request with missing or mismatched contract_id from %.".format(addr).warn;
+        sendHello.value(addr);
+      };
+    }, '/beacon/state', oscSourceFilter, oscListenPort)
+  );
+
+  helloRoutine = Routine({
+    loop {
+      1.0.wait;
+      knownClients.do { |client| sendHello.value(client) };
+    }
+  }).play(AppClock);
+
+  "OSCdefs registered: 69 native controls + hello request + state request (71 total).".postln;
 
   // Cleanup hooks
   ServerQuit.add({
     "ServerQuit: freeing beacon resources...".postln;
+    if (helloRoutine.notNil) { helloRoutine.stop };
     oscdefs.do { |d| d.free };
     if (synth.notNil) { synth.free };
     if (decoder.notNil) { decoder.free; "  decoder kernel buffers freed".postln; };
@@ -301,7 +443,7 @@ server.doWhenBooted({
   "".postln;
   "========================================".postln;
   "  BEACON READY                          ".postln;
-  "  OSC to sclang:57120 | scsynth:57110   ".postln;
+  "  OSC %:% | scsynth 127.0.0.1:57110".format(oscListenHost, oscListenPort).postln;
   "========================================".postln;
   "Bands 1-6 : [ 40, 80, 120, 160, 200, 240 ] Hz (40Hz BW)".postln;
   "Bands 7-12: [ 480, 720, 960, 1200, 1440, 1680 ] Hz (240Hz BW)".postln;

@@ -1,0 +1,277 @@
+{
+  "name": "beacon-spatial-instrument-control",
+  "contract_type": "instrument_control",
+  "contract_version": "1.0",
+  "schema_version": "1.0.0",
+  "namespace": "/beacon",
+  "transport": {
+    "protocol": "OSC 1.0 over UDP",
+    "max_datagram_bytes": 4096,
+    "hello_rebroadcast_s": 1.0
+  },
+  "hashes": {
+    "algorithm": "SHA-256 truncated to 128 bits, lowercase hex (32 characters)",
+    "contract_id": "Canonical UTF-8 JSON with sorted keys, no whitespace and no NaN/Infinity, excluding top-level contract_id, golden_hash and expected_contract_id fields. The expected value lives in a golden sidecar."
+  },
+  "instrument": {
+    "instrument_id": "beacon-spatial",
+    "description": "Thirteen-band binaural spatializer for a live Harmonic Beacon analog signal: twelve band-pass bands plus one high-pass band.",
+    "native_namespace_rule": "The existing /beacon namespace and its indexed band controls are authoritative. This instrument is not a common gain/pan/phase voice model."
+  },
+  "stream_identity": {
+    "stream_id": "Random 64-bit lowercase hexadecimal value generated once per beacon.scd process start.",
+    "scope": "state_seq and monotonic client state are scoped to stream_id.",
+    "restart_rule": "A new stream_id invalidates cached state and requires a fresh state synchronization."
+  },
+  "counters": {
+    "state_seq": "Unsigned monotonic OSC int64 (h), incremented for every accepted control change and every state snapshot emitted by the instrument."
+  },
+  "handshake": {
+    "hello_address": "/beacon/hello",
+    "hello_request_address": "/beacon/hello/request",
+    "hello_request_args": [],
+    "hello_args": [
+      "instrument_id",
+      "stream_id",
+      "schema_version",
+      "producer_version",
+      "contract_id",
+      "state_seq(h)"
+    ],
+    "rebroadcast": "Sent in reply to /beacon/hello/request and approximately every hello_rebroadcast_s to clients learned through hello or state requests."
+  },
+  "capabilities": [
+    {
+      "name": "band_gain",
+      "address_pattern": "/beacon/gain/{N}",
+      "parameters": {
+        "N": {
+          "type": "int32",
+          "bounds": [
+            1,
+            13
+          ]
+        }
+      },
+      "arguments": [
+        {
+          "name": "gain",
+          "type": "float32",
+          "range": [
+            0.0,
+            3.0
+          ],
+          "polarity": "0 = silent; 1 = nominal per-band gain; values above 1 add gain up to 3."
+        }
+      ],
+      "lag_ms": 50.0,
+      "smoothing": "Exponential-style lag in the SynthDef via lag(0.05).",
+      "read": true,
+      "write": true
+    },
+    {
+      "name": "band_azimuth",
+      "address_pattern": "/beacon/az/{N}",
+      "parameters": {
+        "N": {
+          "type": "int32",
+          "bounds": [
+            1,
+            13
+          ]
+        }
+      },
+      "arguments": [
+        {
+          "name": "azimuth_degrees",
+          "type": "float32",
+          "range": [
+            -180.0,
+            180.0
+          ],
+          "polarity": "Negative and positive values rotate in opposite directions around the horizontal plane; 0 is front."
+        }
+      ],
+      "lag_ms": 50.0,
+      "smoothing": "Exponential-style lag in the SynthDef via lag(0.05); values are converted from degrees to radians for FoaPanB.",
+      "read": true,
+      "write": true
+    },
+    {
+      "name": "band_distance",
+      "address_pattern": "/beacon/dist/{N}",
+      "parameters": {
+        "N": {
+          "type": "int32",
+          "bounds": [
+            1,
+            13
+          ]
+        }
+      },
+      "arguments": [
+        {
+          "name": "distance",
+          "type": "float32",
+          "range": [
+            0.0,
+            10.0
+          ],
+          "polarity": "Increasing values attenuate the wet contribution by 1/distance; DSP clamps the divisor to 0.1."
+        }
+      ],
+      "lag_ms": 0.0,
+      "smoothing": "No control smoothing.",
+      "read": true,
+      "write": true
+    },
+    {
+      "name": "band_solo",
+      "address_pattern": "/beacon/solo/{N}",
+      "parameters": {
+        "N": {
+          "type": "int32",
+          "bounds": [
+            1,
+            13
+          ]
+        }
+      },
+      "arguments": [
+        {
+          "name": "solo",
+          "type": "float32",
+          "range": [
+            0.0,
+            1.0
+          ],
+          "polarity": "0 = not soloed; 1 = soloed. If any band is soloed, only soloed bands pass."
+        }
+      ],
+      "lag_ms": 0.0,
+      "smoothing": "No control smoothing.",
+      "read": true,
+      "write": true
+    },
+    {
+      "name": "band_filter_rq",
+      "address_pattern": "/beacon/q/{N}",
+      "parameters": {
+        "N": {
+          "type": "int32",
+          "bounds": [
+            1,
+            12
+          ]
+        }
+      },
+      "arguments": [
+        {
+          "name": "reciprocal_q",
+          "type": "float32",
+          "range": [
+            0.01,
+            2.0
+          ],
+          "polarity": "This is SuperCollider BPF rq (bandwidth divided by center frequency), despite the legacy q address name; larger values produce a wider band."
+        }
+      ],
+      "lag_ms": 50.0,
+      "smoothing": "Exponential-style lag in the SynthDef via lag(0.05).",
+      "read": true,
+      "write": true
+    },
+    {
+      "name": "wet_dry_mix",
+      "address_pattern": "/beacon/mix",
+      "parameters": {},
+      "arguments": [
+        {
+          "name": "mix",
+          "type": "float32",
+          "range": [
+            0.0,
+            1.0
+          ],
+          "polarity": "0 = dry only; 1 = binaural wet only."
+        }
+      ],
+      "lag_ms": 0.0,
+      "smoothing": "No control smoothing.",
+      "read": true,
+      "write": true
+    },
+    {
+      "name": "master_gain",
+      "address_pattern": "/beacon/master",
+      "parameters": {},
+      "arguments": [
+        {
+          "name": "master_gain",
+          "type": "float32",
+          "range": [
+            0.0,
+            3.0
+          ],
+          "polarity": "0 = silent; 1 = unity final gain; values above 1 add gain up to 3."
+        }
+      ],
+      "lag_ms": 0.0,
+      "smoothing": "No control smoothing.",
+      "read": true,
+      "write": true
+    }
+  ],
+  "commands": [
+    {
+      "name": "record_start",
+      "address_pattern": "/beacon/record/start",
+      "parameters": {},
+      "arguments": [
+        {
+          "name": "path",
+          "type": "string",
+          "meaning": "Output WAV path. An empty string selects the engine's timestamped default path."
+        }
+      ],
+      "legacy_argument_coercion": "The existing engine applies asString to the first OSC argument; contract-conforming clients send an OSC string.",
+      "read": false,
+      "write": true
+    },
+    {
+      "name": "record_stop",
+      "address_pattern": "/beacon/record/stop",
+      "parameters": {},
+      "arguments": [],
+      "read": false,
+      "write": true
+    },
+    {
+      "name": "reset",
+      "address_pattern": "/beacon/reset",
+      "parameters": {},
+      "arguments": [],
+      "read": false,
+      "write": true
+    }
+  ],
+  "state_sync": {
+    "mode": "dump",
+    "request_address": "/beacon/state",
+    "request_args": [
+      "expected_contract_id"
+    ],
+    "response": "One atomic bundle beginning with /beacon/state/begin(stream_id, state_seq, contract_id), followed by current values for all 66 readable native addresses, and ending with /beacon/state/end(stream_id, state_seq).",
+    "periodic_broadcast": false,
+    "connect_rule": "After a matching /beacon/hello, a client MUST request /beacon/state with the accepted contract_id and complete the dump before presenting or modifying instrument state.",
+    "mismatch_rule": "A missing or mismatched expected_contract_id produces no state dump."
+  },
+  "receiver_rules": {
+    "client_gating": "A client MUST NOT send capability writes until /beacon/hello contract_id exactly matches the locally accepted contract_id and state synchronization completes.",
+    "stale_contract": "On a missing or mismatched contract_id, stop writes, discard state messages, mark the instrument incompatible and request /beacon/hello again.",
+    "instrument_gating": "The current UDP adapter cannot prove client identity across datagrams, so it preserves legacy writes from any source admitted by the configured listen rule; adapters that can identify negotiated clients MUST ignore writes from clients without a matching handshake.",
+    "monotonic_discard": "Within one stream_id, discard state updates with state_seq less than or equal to the last applied state_seq, except members of the same atomic state dump.",
+    "stream_change": "A new stream_id clears cached state and requires a fresh dump.",
+    "argument_validation": "Clients MUST send the declared OSC types and finite in-range numeric values. The engine preserves its existing unclamped OSC write semantics."
+  }
+}

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Flask web UI for Harmonic Beacon Spatializer.
 
-Serves a dark-themed control surface (default http://localhost:5050)
-Sends OSC to sclang (beacon.scd) on port 57120.
+Serves a dark-themed control surface (default http://localhost:5050).
+Sends OSC to sclang (beacon.scd) on BEACON_OSC_PORT (default 57120).
 
 Usage:
     ./start-beacon.sh
@@ -16,7 +16,10 @@ from pythonosc.udp_client import SimpleUDPClient
 import os, json, glob, re, time
 
 app = Flask(__name__)
-osc = SimpleUDPClient("127.0.0.1", 57120)
+osc = SimpleUDPClient(
+    os.environ.get("BEACON_OSC_TARGET_HOST", "127.0.0.1"),
+    int(os.environ.get("BEACON_OSC_PORT", "57120")),
+)
 # Second OSC target: PD replica sclang on port 9001 (when running)
 osc_pd = SimpleUDPClient("127.0.0.1", 9001)
 

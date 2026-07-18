@@ -16,9 +16,14 @@
 #
 # Proper Ctrl-C / SIGTERM cleanup: kills all tracked child PIDs.
 # Usage: ./start-beacon.sh [--live|--file] [--no-https]
+#                          [--osc-host HOST] [--osc-port PORT]
 #   --live (default): SoundIn.ar(0) from R24 CH1
 #   --file:           PlayBuf with harmonic_beacon_2026_05_13_session.wav
 #   --no-https:       skip the cloudflared tunnel (LAN-only mode)
+#   --osc-host:       accepted OSC source/bind rule (default 127.0.0.1;
+#                     use 0.0.0.0 to accept remote dashboards)
+#   --osc-port:       sclang OSC listen port (default 57120)
+# Environment alternatives: BEACON_OSC_HOST, BEACON_OSC_PORT.
 # Requires: pw-jack, scsynth, sclang in PATH + ./venv with flask + python-osc
 # Optional: cloudflared at ~/.local/bin/cloudflared (for --no-https bypass)
 
@@ -27,21 +32,65 @@ set -u
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$PROJECT_DIR"
 
-# Parse args
+# Parse args. Environment values are defaults so existing deployments can
+# configure the listener without changing their launcher invocation.
 BEACON_SOURCE="live"
 ENABLE_HTTPS=1
-for arg in "$@"; do
-    case "$arg" in
+BEACON_OSC_HOST="${BEACON_OSC_HOST:-127.0.0.1}"
+BEACON_OSC_PORT="${BEACON_OSC_PORT:-57120}"
+while [ "$#" -gt 0 ]; do
+    case "$1" in
         --file)   BEACON_SOURCE="file" ;;
         --live)   BEACON_SOURCE="live" ;;
         --no-https) ENABLE_HTTPS=0 ;;
+        --osc-host)
+            if [ "$#" -lt 2 ]; then
+                echo "[ERROR] --osc-host requires a value" >&2
+                exit 2
+            fi
+            BEACON_OSC_HOST="$2"
+            shift
+            ;;
+        --osc-host=*) BEACON_OSC_HOST="${1#*=}" ;;
+        --osc-port)
+            if [ "$#" -lt 2 ]; then
+                echo "[ERROR] --osc-port requires a value" >&2
+                exit 2
+            fi
+            BEACON_OSC_PORT="$2"
+            shift
+            ;;
+        --osc-port=*) BEACON_OSC_PORT="${1#*=}" ;;
+        *)
+            echo "[ERROR] Unknown argument: $1" >&2
+            exit 2
+            ;;
     esac
+    shift
 done
-export BEACON_SOURCE
+
+case "$BEACON_OSC_HOST" in
+    ""|*[!A-Za-z0-9._:-]*)
+        echo "[ERROR] Invalid OSC host: $BEACON_OSC_HOST" >&2
+        exit 2
+        ;;
+esac
+case "$BEACON_OSC_PORT" in
+    ""|*[!0-9]*)
+        echo "[ERROR] OSC port must be an integer: $BEACON_OSC_PORT" >&2
+        exit 2
+        ;;
+esac
+if [ "$BEACON_OSC_PORT" -lt 1 ] || [ "$BEACON_OSC_PORT" -gt 65535 ]; then
+    echo "[ERROR] OSC port must be between 1 and 65535: $BEACON_OSC_PORT" >&2
+    exit 2
+fi
+export BEACON_SOURCE BEACON_OSC_HOST BEACON_OSC_PORT
 
 echo "========================================"
 echo "  Harmonic Beacon Spatializer"
 echo "  Source: $BEACON_SOURCE"
+echo "  OSC: $BEACON_OSC_HOST:$BEACON_OSC_PORT"
 echo "  HTTPS tunnel: $([ $ENABLE_HTTPS -eq 1 ] && echo 'yes (cloudflared)' || echo 'no  (--no-https)')"
 echo "========================================"
 echo "Dir: $PROJECT_DIR"
@@ -123,9 +172,9 @@ for i in $(seq 1 20); do
 done
 
 # --- 2. sclang + beacon.scd ---
-echo "[2/3] sclang + beacon.scd (mode: $BEACON_SOURCE)..."
+echo "[2/3] sclang + beacon.scd (mode: $BEACON_SOURCE, OSC: $BEACON_OSC_HOST:$BEACON_OSC_PORT)..."
 # sclang needs a pseudo-TTY to stay alive (REPL loop). script(1) provides one.
-QT_QPA_PLATFORM=offscreen BEACON_SOURCE=$BEACON_SOURCE script -q -c 'sclang -u 57120 -d . beacon.scd' /dev/null > /tmp/sclang.log 2>&1 &
+QT_QPA_PLATFORM=offscreen script -q -c "sclang -u $BEACON_OSC_PORT -d . beacon.scd" /dev/null > /tmp/sclang.log 2>&1 &
 SCLANG_PID=$!
 echo "      -> PID $SCLANG_PID (log: /tmp/sclang.log)"
 sleep 8
@@ -176,7 +225,7 @@ echo "========================================"
 echo "  READY"
 echo "========================================"
 echo "  Web UI : http://localhost:5050"
-echo "  OSC    : 127.0.0.1:57120 (sclang)"
+echo "  OSC    : $BEACON_OSC_HOST:$BEACON_OSC_PORT (sclang)"
 echo "  Server : 127.0.0.1:57110 (scsynth)"
 if [ -n "$TUNNEL_URL" ]; then
     echo ""
