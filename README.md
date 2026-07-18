@@ -1,114 +1,125 @@
 # Harmonic Beacon Spatializer
 
-6-band binaural spatializer for the 40Hz natural harmonic series guitar.
-Each string fundamental (40, 80, 120, 160, 200, 240 Hz) gets its own position in 3D space via headphones.
+13-band binaural spatializer for the Harmonic Beacon (40 Hz natural harmonic series). Each band has independent gain, azimuth, distance, and (for BPF bands) Q, rendered over headphones via ATK HRTF.
 
-**Current engine:** SuperCollider (scsynth + ATK FOA + sclang OSCdefs) + Flask web UI.
+**Current engine:** SuperCollider (`beacon.scd`) — 12 BPF + 1 HPF @ 1800 Hz, ATK `FoaPanB` / `FoaDecode` with Listen kernels @ 48 kHz. OSC control on port **57120**. Flask web UI on **:5050**.
 
 ## Quick Start
 
 ### 1. One-time setup (venv)
 
-    cd ~/Projects/beacon-spatial
-    python3 -m venv venv
-    source venv/bin/activate
-    pip install -r requirements.txt
+```bash
+cd ~/Projects/beacon-spatial
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
 
 ### 2. Start everything (recommended)
 
-    ./start-beacon.sh
+```bash
+./start-beacon.sh          # --live default: Zoom R24 CH1 → SoundIn.ar(0)
+./start-beacon.sh --file   # loop harmonic_beacon_2026_05_13_session.wav
+./start-beacon.sh --no-https  # skip cloudflared tunnel
+```
 
-This starts (in order):
-- JACK (if not running) with the project ALSA settings
-- scsynth on 57110 (2 in / 2 out)
-- sclang + `beacon.scd` (QT offscreen, OSC on 57120)
-- Flask web UI from venv on http://localhost:5050
+The launcher:
 
-Press **Ctrl-C** in the terminal to cleanly stop all four.
+1. Starts `pw-jack scsynth` on port **57110** (2 in / 2 out)
+2. Auto-connects JACK (Built-in + R24; R24 CH1 → `SuperCollider:in_1`)
+3. Runs `sclang beacon.scd` (OSC on **57120**, wrapped in `script` for a pseudo-TTY)
+4. Starts Flask from `venv` at http://localhost:5050
+5. Optionally raises a `cloudflared` HTTPS tunnel (needed for phone sensors)
 
-### 3. Open browser
+Press **Ctrl-C** to stop all child processes.
 
-    http://localhost:5050
+### 3. Open the UI
 
-Move faders — changes go live via OSC to the 6-band spatializer.
+```
+http://localhost:5050
+```
 
-### Legacy Pd version
-
-The original Pd patch (`beacon-spatial.pd`) and related files remain in the tree for reference but are no longer the active target.
+Three tabs: Manual / Sensors / Presets. Changes go live over OSC to the 13-band engine.
 
 ## Files
 
-- `start-beacon.sh` — master launcher (JACK + scsynth + sclang + web UI)
-- `beacon.scd` — SuperCollider synthdef + 6-band FoaPanB + OSCdef receivers (ATK)
-- `webui.py` — Flask web UI (dark theme, 6-band + mix controls)
-- `beacon-osc.json` — Open Stage Control layout (optional)
-- `requirements.txt`, `venv/` — Python deps
-- `extracto_2min.wav` — source loop (guitar harmonic series)
-- Legacy: `beacon-spatial.pd`, `spatializer~.pd`, `generate.py`, `bridge.py`
+| File | Role |
+|------|------|
+| `start-beacon.sh` | Canonical launcher (`pw-jack scsynth`, sclang, Flask, optional HTTPS) |
+| `beacon.scd` | Main engine: 13 bands, ATK FOA binaural, 69 OSCdefs on 57120 |
+| `beacon_pd_replica.scd` | Optional 6-band PD-algorithm replica (OSC on 9001) |
+| `start-beacon-pd.sh` | Starts the replica alongside the main engine |
+| `webui.py` | Flask control surface (:5050); HTTP → OSC to 57120 (and 9001 if up) |
+| `beacon-osc.json` | Open Stage Control template (see `beacon-osc.ANNOTATIONS.md`) |
+| `harmonic_beacon_2026_05_13_session.wav` | File-mode source loop (mono 48 kHz; large, often not in git) |
+| `configs/` | JSON presets (`bands[]` + mix/master; optional sensor_mappings) |
+| `requirements.txt`, `venv/` | Python deps for the web UI |
+| `legacy/` | Frozen Pure Data stack (patches, bridge, OSC tests) — not the active path |
+| `research/` | Historical multi-agent engine-selection notes (May 2026) |
 
-## Architecture (current)
+Root-level PD files (`beacon-spatial.pd`, `spatializer~.pd`, `bridge.py`, `generate.py`, etc.) are legacy duplicates; prefer `legacy/` and treat SuperCollider as the runtime.
+
+## Architecture
 
 ```
 Browser (http://localhost:5050)
     |
-    | HTTP POST /control
+    | HTTP POST /control, /control/batch, presets, …
     v
-Flask (webui.py, venv python)
+Flask (webui.py)
     |
-    | OSC UDP :57120
+    | OSC UDP :57120          (optional copy :9001 → PD replica)
     v
-sclang (beacon.scd) -- OSCdef --> synth.set()
+sclang (beacon.scd) — OSCdef → synth.set
     |
-    | /n_set etc.
     v
-scsynth -u 57110 (JACK backend)
+scsynth -u 57110 via pw-jack
     |
-    | 6x BPF -> FoaPanB(az,1/dist) -> B-format sum -> FoaDecode(Listen) + dry
+    | source → 12× BPF + HPF@1800 → solo → dry Mix*(1-mix)
+    |                              → wet FoaPanB(az,1/dist) → FoaDecode(Listen)
+    | → (wet+dry)*master → Out.ar(0, 2)
     v
-JACK -> headphones (binaural)
+PipeWire/JACK → headphones (binaural)
 ```
 
-## Web UI (standalone)
+**Source modes** (`BEACON_SOURCE` via launcher flags):
 
-If you want to run pieces manually (e.g. during SC dev):
+- `--live` (default): `SoundIn.ar(0)` from Zoom R24 CH1
+- `--file`: `PlayBuf` loop of `harmonic_beacon_2026_05_13_session.wav`
 
-    # terminal 1
-    jackd -d alsa -r 44100 -p 256 -n 2
+No reverb, no LFOs on the main engine (static spatialization by design).
 
-    # terminal 2
-    scsynth -u 57110 -i 2 -o 2
+## OSC (summary)
 
-    # terminal 3
-    QT_QPA_PLATFORM=offscreen sclang -D beacon.scd
+One float per message; band index is **in the address**, not an argument.
 
-    # terminal 4
-    source venv/bin/activate && python3 webui.py
+| Address | Range | Notes |
+|---------|-------|-------|
+| `/beacon/gain/N` | 0–3 | N = 1..13 |
+| `/beacon/az/N` | −180..180 | N = 1..13 |
+| `/beacon/dist/N` | 0..10 | N = 1..13 |
+| `/beacon/q/N` | — | N = 1..12 (BPF only) |
+| `/beacon/solo/N` | 0/1 | N = 1..13 |
+| `/beacon/mix` | 0..1 | wet/dry balance (not separate wet/dry) |
+| `/beacon/master` | 0..3 | |
+| `/beacon/record/start` | path optional | start WAV record |
+| `/beacon/record/stop` | — | |
+| `/beacon/reset` | — | defaults |
 
-## Default Positions (per-band)
+Replica on **9001** uses the same scheme for N=1..6 only. Full detail: `MEMORY.md`, `PD_REPLICA_OSC_SCHEME.md`.
 
-| Freq | Position | Azimuth | Distance |
-|------|----------|---------|----------|
-| 40Hz | rear/ground | 180 | 2.0 |
-| 80Hz | rear-right | 135 | 2.5 |
-| 120Hz | left side | -90 | 3.0 |
-| 160Hz | front-left | -45 | 2.5 |
-| 200Hz | front-right | 45 | 2.0 |
-| 240Hz | front-center | 0 | 1.5 |
+## 13-band layout
 
-## Live Controls (Web UI + OSC)
-
-- **Gains** (per band): 0–3
-- **Azimuth** (left/right): -180..180 deg
-- **Distance** (depth): 0–10
-- **Wet / Dry / Master**
-
-All changes have 50 ms lag on gain/az per spec. No LFOs, no reverb, plain FoaPanB + 1/distance.
+| Band | Freq | Type |
+|------|------|------|
+| 1–6 | 40 / 80 / 120 / 160 / 200 / 240 Hz | BPF (40 Hz bandwidth) |
+| 7–12 | 480 / 720 / 960 / 1200 / 1440 / 1680 Hz | BPF (240 Hz bandwidth) |
+| 13 | 1800+ Hz | HPF |
 
 ## Important
 
-- **Headphones required.** Binaural spatialization (Listen HRTF via ATK) only works on headphones.
-- Requires SuperCollider + ATK quark + kernels (~/.local/share/ATK/kernels/FOA/decoders/listen).
-- The launcher and .scd hard-code the absolute path to `extracto_2min.wav`.
-
-
-
+- **Headphones required.** Listen HRTF binaural only works on headphones.
+- SuperCollider + ATK quark + Listen FOA decoder kernels at 48 kHz.
+- Use `pw-jack scsynth`, not a bare `jackd` session (PipeWire exclusive-mode conflicts).
+- sclang must run with a pseudo-TTY (`script` in the launcher); plain daemon mode exits.
+- Phone sensors need HTTPS (auto-tunnel) or a secure origin.

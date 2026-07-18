@@ -1,0 +1,7 @@
+*.wav
+venv/
+.git/
+__pycache__/
+*.pyc
+beacon_record_*/
+node_modules/
