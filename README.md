@@ -47,17 +47,17 @@ Three tabs: Manual / Sensors / Presets. Changes go live over OSC to the 13-band 
 |------|------|
 | `start-beacon.sh` | Canonical launcher (`pw-jack scsynth`, sclang, Flask, optional HTTPS) |
 | `beacon.scd` | Main engine: 13 bands, ATK FOA binaural, 69 OSCdefs on 57120 |
-| `beacon_pd_replica.scd` | Optional 6-band PD-algorithm replica (OSC on 9001) |
-| `start-beacon-pd.sh` | Starts the replica alongside the main engine |
+| `legacy/beacon_pd_replica.scd` | Optional 6-band PD-algorithm replica (OSC on 9001) |
+| `legacy/start-beacon-pd.sh` | Starts the replica alongside the main engine |
 | `webui.py` | Flask control surface (:5050); HTTP → OSC to 57120 (and 9001 if up) |
 | `beacon-osc.json` | Open Stage Control template (see `beacon-osc.ANNOTATIONS.md`) |
 | `harmonic_beacon_2026_05_13_session.wav` | File-mode source loop (mono 48 kHz; large, often not in git) |
 | `configs/` | JSON presets (`bands[]` + mix/master; optional sensor_mappings) |
 | `requirements.txt`, `venv/` | Python deps for the web UI |
-| `legacy/` | Frozen Pure Data stack (patches, bridge, OSC tests) — not the active path |
-| `research/` | Historical multi-agent engine-selection notes (May 2026) |
+| `legacy/` | Frozen Pure Data stack (patches, replica, bridge, launchers, OSC tests) — not the active path |
+| `docs/research/` | Historical multi-agent engine-selection notes (May 2026) |
 
-Root-level PD files (`beacon-spatial.pd`, `spatializer~.pd`, `bridge.py`, `generate.py`, etc.) are legacy duplicates; prefer `legacy/` and treat SuperCollider as the runtime.
+SuperCollider is the only runtime; everything PD lives under `legacy/`.
 
 ## Architecture
 
