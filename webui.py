@@ -600,7 +600,7 @@ HTML = """<!DOCTYPE html>
             const span = btn.querySelector('span') || btn;
             
             if (recording) {
-                const preset = document.getElementById('load-select').value || 'session';
+                const preset = document.getElementById('load-select-large').value || 'session';
                 sendGlobal('record/start', preset);
                 btn.classList.add('!bg-red-600', '!border-red-600', '!text-white');
                 span.textContent = 'STOP';
@@ -715,7 +715,6 @@ HTML = """<!DOCTYPE html>
             }
         }
 
-<<<<<<< HEAD
         // === Sensor Logic (kept and enhanced) ===
         let currentSensors = {};
         // Unwrap state for yaw (alpha). The browser delivers alpha as a
@@ -762,22 +761,6 @@ HTML = """<!DOCTYPE html>
                 startSensorListeners();
             }).catch(err => {
                 if (statusEl) statusEl.innerHTML = '<i class="fa-solid fa-circle text-red-400 text-[8px]"></i> <span>Permission denied</span>';
-=======
-        function saveConfig() {
-            let name = document.getElementById('save-name').value.trim();
-            if (!name) {
-                name = document.getElementById('load-select').value;
-                if (!name) { setStatus('Enter a name or load a preset first'); return; }
-                if (!confirm('Overwrite "' + name + '"?')) return;
-            }
-            fetch('/save_config', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({name: name, state: gatherState()})
-            }).then(r => r.json()).then(data => {
-                setStatus(data.ok ? 'Saved: ' + name : 'Error');
-                if (data.ok) loadConfigList();
->>>>>>> 9fbe782 (fix: recording path defaults to ~/Music/beacon and uses preset name from UI)
             });
         }
 
@@ -1404,7 +1387,7 @@ HTML = """<!DOCTYPE html>
 
         // Load/Save config (kept intact)
         function loadConfig() {
-            const name = document.getElementById('load-select').value;
+            const name = document.getElementById('load-select-large').value;
             if (!name) { 
                 const status = document.getElementById('config-status');
                 if (status) status.textContent = 'Select a preset';
@@ -1431,7 +1414,7 @@ HTML = """<!DOCTYPE html>
 
         function loadConfigList() {
             fetch('/list_configs').then(r => r.json()).then(data => {
-                const sel = document.getElementById('load-select');
+                const sel = document.getElementById('load-select-large');
                 sel.innerHTML = '<option value="">Load preset...</option>';
                 (data.configs || []).forEach(c => {
                     const opt = document.createElement('option');
@@ -1443,7 +1426,16 @@ HTML = """<!DOCTYPE html>
         }
 
         function saveConfig() {
-            const name = document.getElementById('save-name').value.trim() || 'untitled-' + Date.now();
+            let name = document.getElementById('save-name').value.trim();
+            if (!name) {
+                name = document.getElementById('load-select-large').value;
+                if (!name) {
+                    const status = document.getElementById('config-status');
+                    if (status) status.textContent = 'Enter a name or load a preset first';
+                    return;
+                }
+                if (!confirm('Overwrite "' + name + '"?')) return;
+            }
             const state = gatherState();
             
             fetch('/save_config', {
@@ -1550,7 +1542,8 @@ HTML = """<!DOCTYPE html>
                             '</div>' +
                             '<div class="text-[10px] text-slate-500">click to load</div>';
                         card.onclick = () => {
-                            document.getElementById('load-select').value = c;
+                            const big = document.getElementById('load-select-large');
+                            if (big) big.value = c;
                             loadConfig();
                         };
                         cards.appendChild(card);
@@ -1702,11 +1695,7 @@ HTML = """<!DOCTYPE html>
         window.addEventListener('devicemotion', __updateAfterOrient, true);
 
         function loadConfigFromLargeSelect() {
-            const sel = document.getElementById('load-select-large');
-            if (sel && sel.value) {
-                document.getElementById('load-select').value = sel.value;
-                loadConfig();
-            }
+            loadConfig();
         }
 
         window.onload = initializeUI;
@@ -1722,22 +1711,6 @@ def index():
 def control():
     data = request.get_json()
     addr = data.get("address", "")
-<<<<<<< HEAD
-    raw = data.get("value", 0)
-    # OSC value must be numeric; coerce strings to float when possible.
-    # record/start|stop can carry a non-numeric label, so we forward a
-    # numeric 1/0 to sclang and use the address itself to convey intent.
-    try:
-        val = float(raw)
-    except (TypeError, ValueError):
-        val = 1.0 if isinstance(raw, str) and raw else 0.0
-    osc.send_message(addr, val)
-    # Also forward to PD replica sclang (port 9001) if running
-    try:
-        osc_pd.send_message(addr, val)
-    except Exception:
-        pass  # PD replica not running — silently ignore
-=======
     val = data.get("value", 0)
     if addr == "/beacon/record/start":
         label = str(val) if val is not None else "session"
@@ -1746,11 +1719,19 @@ def control():
         path = os.path.join(RECORD_DIR, f"{safe}_{ts}.wav")
         osc.send_message(addr, path)
         return jsonify({"ok": True, "path": path})
+    # OSC value must be numeric; coerce strings to float when possible.
+    # record/start|stop can carry a non-numeric label, so we forward a
+    # numeric 1/0 to sclang and use the address itself to convey intent.
     try:
-        osc.send_message(addr, float(val))
+        val = float(val)
     except (TypeError, ValueError):
-        osc.send_message(addr, 1.0 if val else 0.0)
->>>>>>> 9fbe782 (fix: recording path defaults to ~/Music/beacon and uses preset name from UI)
+        val = 1.0 if isinstance(val, str) and val else 0.0
+    osc.send_message(addr, val)
+    # Also forward to PD replica sclang (port 9001) if running
+    try:
+        osc_pd.send_message(addr, val)
+    except Exception:
+        pass  # PD replica not running — silently ignore
     return jsonify({"ok": True})
 
 @app.route("/control/batch", methods=["POST"])
